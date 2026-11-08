@@ -1,0 +1,46 @@
+# ============================================================
+# AI Service — core dependencies
+# Python 3.11+ recommended
+# ============================================================
+
+# --- Web / API ---
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+
+# --- Settings / env (typed, validates at startup) ---
+pydantic-settings==2.16.2
+
+# --- HTTP client for LLM APIs (async, timeouts, retries) ---
+httpx2==2.16.0
+
+# --- Retry / backoff for LLM calls (429, timeouts) ---
+tenacity==9.2.1
+
+# --- Structured logging (request_id, JSON in prod) ---
+structlog==26.1.0
+
+# --- GigaChat official SDK (use if provider = GigaChat) ---
+gigachat==0.2.4
+
+
+# --- JSON schema → Pydantic (если LLM возвращает JSON, а не SDK structured output) ---
+jsonschema==4.26.0
+
+# --- RAG (только если каталога продуктов недостаточно и дали объёмную документацию) ---
+faiss-cpu==1.15.1
+sentence-transformers==6.2.0
+llama-index-core==0.14.25
+llama-index-embeddings-huggingface==0.8.0
+llama-index-vector-stores-faiss==0.7.0
+
+#  FastEmbed generates embeddings locally, so you don't need a separate embedding API
+qdrant-client[fastembed]==1.20.0
+
+# ============================================================
+# AI Service — dev & test dependencies
+# ============================================================
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
+pytest-cov==7.1.0
+
