@@ -1,0 +1,140 @@
+# ============================================================
+# EnergyTool AI — .gitignore (monorepo)
+# ============================================================
+
+# ---------- Secrets / Environment ----------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+credentials*.json
+service-account*.json
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+sdist/
+develop-eggs/
+downloads/
+wheels/
+MANIFEST
+
+# virtualenv
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# type checkers / linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ---------- Node / Frontend ----------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.npm/
+.yarn/
+.vite/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# Frontend env overrides
+.env.local
+.env.*.local
+
+# ---------- IDE / Editors ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ---------- OS ----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---------- Docker / local volumes ----------
+docker-compose.override.yml
+pg_data/
+postgres-data/
+.volumes/
+*.pid
+
+# ---------- Logs ----------
+logs/
+*.log
+
+# ---------- Local DBs ----------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ---------- ML / RAG artifacts ----------
+models/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+.cache/
+embeddings/
+vector_store/
+chroma/
+faiss_index/
+*.faiss
+
+# ---------- Misc ----------
+tmp/
+temp/
+*.bak
+*.orig
