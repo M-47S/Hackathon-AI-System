@@ -22,9 +22,18 @@ func CreateSessionHandler(ctx *gin.Context){
 	// 	ctx.JSON(400, gin.H{"error": "Параметр user_id должен быть"})
 	// 	return
 	// }
+
+	var session Session
+	uuid := uuid.NewString()
+	created_time := time.Now()
+
+	session.SessionId = uuid
+	session.CreatedAt = created_time
+	globalDBCon.Create(&session)
+
 	var session_info SessionForm
-	session_info.created_at = time.Now().GoString()
-	session_info.session_id = uuid.NewString()
+	session_info.created_at = created_time.GoString()
+	session_info.session_id = uuid
 	session_info.status = "active"
 	ctx.JSON(http.StatusOK, session_info)
 	// Также необходимо записать в БД

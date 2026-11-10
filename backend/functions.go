@@ -11,7 +11,7 @@ import (
 )
 
 func InitTables(){
-	err := globalDBCon.AutoMigrate()
+	err := globalDBCon.AutoMigrate(&Messages{}, &Leads{}, &Profiles{})
 	if err != nil {
 		log.Fatal("Critical error: Can't create tables")
 	}
