@@ -120,7 +120,7 @@ logs/
 *.db-journal
 
 # ---------- ML / RAG artifacts ----------
-models/
+**/models/
 *.pt
 *.pth
 *.ckpt
