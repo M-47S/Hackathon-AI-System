@@ -138,3 +138,4 @@ tmp/
 temp/
 *.bak
 *.orig
+**/_test_/
