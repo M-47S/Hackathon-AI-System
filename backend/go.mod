@@ -5,6 +5,7 @@ go 1.26.10
 require (
 	github.com/gin-contrib/cors v1.7.11
 	github.com/gin-gonic/gin v1.12.0
+	github.com/go-resty/resty/v2 v2.17.2
 	github.com/google/uuid v1.6.0
 )
 

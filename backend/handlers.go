@@ -1,11 +1,8 @@
-package main
+package main 
 
 import (
-	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -15,23 +12,11 @@ func Hello(ctx *gin.Context){
 	wr.Write([]byte("Hello"))
 }
 
-
-
-
-
-
-
-
-type SessionForm struct{
-	session_id string `json:"session_id"`
-	status string `json:"status"`
-	created_at string `json:created_at`
-}
-
 // Данный Handler возвращает uuid нового чата а также 
 // дополнительные данные для записи в БД 
 // Необходимо ли user_id проверять при создании нового чата ? 
-func CreateSession(ctx *gin.Context){
+// 4.1 POST /api/sessions
+func CreateSessionHandler(ctx *gin.Context){
 	// user_id := ctx.Query("user_id")
 	// if user_id == ""{
 	// 	ctx.JSON(400, gin.H{"error": "Параметр user_id должен быть"})
@@ -41,16 +26,12 @@ func CreateSession(ctx *gin.Context){
 	session_info.created_at = time.Now().GoString()
 	session_info.session_id = uuid.NewString()
 	session_info.status = "active"
-	ctx.JSON(http.StatusOK, &session_info)
+	ctx.JSON(http.StatusOK, session_info)
 	// Также необходимо записать в БД
 }
 
-// Структура для /api/chat с сообщением пользователя
-type UserRequest struct{
-	session_id string `json:"session_id"`
-	request_id string `json:request_id""`
-	message string `json:"message"`
-}
+
+// 4.2 POST /api/chat 
 // Данный handler обрабатывает сообщение от пользователя в конкретном чате записывает его в историю а также отправяет LLM модели ждет ответ и отправялет обратно на front
 func UserMessageHandler(ctx *gin.Context) {
 	var user_request UserRequest
@@ -58,12 +39,17 @@ func UserMessageHandler(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON"})
 		return
 	}
+	ai_response, err := GetAIAnwser(user_request)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ"})
+	}
 	// тут необходимо записать в БД и отправка в Python а также получение ответа, но пока хз каков там формат, потому то что в примере != итог так что пока 200 ответ
-	ctx.Status(http.StatusOK)
+	ctx.JSON(http.StatusOK, ai_response)
 }
 
 
 // Данный Handler необходим чтобы найти все сообщения Ai и USer по session_id для отрисовки пользователю
+// 4.3 GET /api/sessions/{session_id}/messages 
 func ChatHistoryHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
 	_ = session_id
@@ -73,27 +59,9 @@ func ChatHistoryHandler(ctx *gin.Context){
 
 }
 
-type UserContactData struct {
-	name string `json"name"`
-	company string `json:"company"`
-	phone string `json:"phone"`
-	email string `json:"email"`
-}
-
-type ManagerStatementForm struct {
-	session_id string `json:"session_id"`
-	submission_id string `json:"submission_id"`
-	contact UserContactData `json:"contact"`
-	consent bool `json:consent`
-}
-
-type LeadForm struct {
-	lead_id string `json:"lead_id"`
-	status string `json:"status"`
-	created_at string `json:"created_at"`
-}
 
 // Данный Handler принимает от пользователя форму и записывает ее в БД
+// 4.4. POST /api/leads 
 func ManagerStatmentHandler(ctx *gin.Context){
 	var statment_form ManagerStatementForm
 	if err := ctx.ShouldBindJSON(&statment_form); err != nil {
@@ -106,30 +74,4 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	lead_form.status = "new"
 	lead_form.lead_id = uuid.NewString()
 	ctx.JSON(http.StatusCreated, lead_form)
-}
-
-func main(){
-	// Для работы с БД будет исользоваться GORM из-за удобства автоматически создавать таблицы и записывать туда данные создавая их из type struct
-	r := gin.Default()
-	// Политика CORS чтобы доверять грубо говоря ip, пока что localhost можно поменять позже, пока не понятно где находится front в будущем
-	config := cors.Config {
-		AllowOrigins: []string{"http://localhost:3000"},
-		AllowMethods: []string{"POST", "GET", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-type", "Authorization"},
-		AllowCredentials: true,
-		MaxAge: 12 * time.Hour,
-	}
-	r.Use(cors.New(config))
-
-	// позже настрою Cookie 
-	r.GET("api/hello", Hello)
-	r.GET("api/sessons/:session_id/messages")
-
-
-	r.POST("api/sessions", CreateSession)
-	r.POST("api/chat", UserMessageHandler)
-	r.POST("api/leads", ManagerStatmentHandler)
-
-	fmt.Print("The server was opened at http://localhost:8080")
-	r.Run(":8080")
 }
