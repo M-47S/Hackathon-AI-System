@@ -6,7 +6,7 @@ import (
 	"github.com/gin-contrib/cors"
 )
 
-func SetupRoutes() *gin.Engine{
+func SetupRoutes() *gin.Engine {
 	// Для работы с БД будет исользоваться GORM из-за удобства автоматически создавать таблицы и записывать туда данные создавая их из type struct
 	r := gin.Default()
 	// Политика CORS чтобы доверять грубо говоря ip, пока что localhost можно поменять позже, пока не понятно где находится front в будущем
