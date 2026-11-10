@@ -1,78 +1,84 @@
 package main
 
+// Структура для возвращения информации о сессии /api/sessions
 type SessionForm struct{
-	session_id string `json:"session_id"`
-	status string `json:"status"`
-	created_at string `json:created_at`
+	SessionId string `json:"session_id"`
+	Status string `json:"status"`
+	CreatedAt string `json:created_at`
 }
 
 
-// Структура для /api/chat с сообщением пользователя
+// Структура для принятия запроса с Frontend /api/chat
 type UserRequest struct{
-	session_id string `json:"session_id"`
-	request_id string `json:request_id""`
-	message string `json:"message"`
+	SessionId string `json:"session_id"`
+	RequestId string `json:request_id""`
+	Message string `json:"message"`
 }
 
-type HistoryForm struct {
-	role string `json:"role"`
-	content string `json:"content"`
+// Структура для считывания []History из БД для LLM /v1/chat
+type AiHistoryMessageForm struct {
+	Role string `json:"role"`
+	Content string `json:"content"`
 }
 
+// Структура для считывания []History из БД для Пользователя /v1/chat
+type FrontHistoryMessageForm struct {
+	Role string `json:"role"`
+	Content string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+type UserHistoryForm struct {
+	SessionId string `json:"session_id"`
+	History []FrontHistoryMessageForm `json:"history"`
+}
+
+// Структура для считывания customer_profile из БД для LLM /v1/chat
 type CustomerProfileForm struct {
-	business_type string `json:"business_type"`
-	object_count int `json:"object_count"`
-	problem string `json:"problem"`
-	metering_method string `json:"metering_method"`
+	BusinessType string `json:"business_type"`
+	ObjectCount int `json:"object_count"`
+	Problem string `json:"problem"`
+	MeteringMethod string `json:"metering_method"`
 }
 
+
+// Структура для отправки запроса в LLM /v1/chat
 type RequestToAI struct {
-  session_id string `json:"session_id"`
-  request_id string `json:"request_id"`
-  message  string `json:"message"`
-  history []HistoryForm `json:"history"`
-  customer_profile CustomerProfileForm `json:"customer_profile"`
-  conversation_summary string `json:"conversation_summary"`
+  SessionId string `json:"session_id"`
+  RequestId string `json:"request_id"`
+  Message  string `json:"message"`
+  History []AiHistoryMessageForm `json:"history"`
+  CustomerProfile CustomerProfileForm `json:"customer_profile"`
+  ConversationSummary string `json:"conversation_summary"`
 }
-
+// Структура для принятия ответа из LLM /v1/chat
 type AIResponseForm struct {
-  action string `json:"action"`
-  answer string `json:"answer"`
-  product_ids []string `json:"products_ids"`
-  customer_profile CustomerProfileForm `json:"customer_profile"`
-  conversation_summary string `json:"conversation_summary"`
+  Action string `json:"action"`
+  Answer string `json:"answer"`
+  ProductIds []string `json:"recommended_product_ids"`
+  CustomerProfile CustomerProfileForm `json:"customer_profile"`
+  ConversationSummary string `json:"conversation_summary"`
 }
 
+// Структура в которой хранится информация о пользователе которая призодит с Front /api/leads
 type UserContactData struct {
-	name string `json"name"`
-	company string `json:"company"`
-	phone string `json:"phone"`
-	email string `json:"email"`
+	Name string `json"name"`
+	Company string `json:"company"`
+	Phone string `json:"phone"`
+	Email string `json:"email"`
 }
 
+// Структура в которой хранится информация для создания Заявки /api/leads
 type ManagerStatementForm struct {
-	session_id string `json:"session_id"`
-	submission_id string `json:"submission_id"`
-	contact UserContactData `json:"contact"`
-	consent bool `json:consent`
+	Session_id string `json:"session_id"`
+	Submission_id string `json:"submission_id"`
+	Contact UserContactData `json:"contact"`
+	Consent bool `json:consent`
 }
 
+// Структура которая возвращается с информацией о созданной заявке /api/leads
 type LeadForm struct {
-	lead_id string `json:"lead_id"`
-	status string `json:"status"`
-	created_at string `json:"created_at"`
+	LeadId string `json:"lead_id"`
+	Status string `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
-
-
-// type LeadDataForManager{
-//   "items": [
-//     {
-//       "lead_id": "lead-001",
-//       "company": "ООО Компания",
-//       "status": "new",
-//       "problem": "Высокие расходы на электроэнергию",
-//       "recommended_product_ids": ["cloud_askue"],
-//       "created_at": "2026-11-09T12:35:00Z"
-//     }
-//   ]
-// }

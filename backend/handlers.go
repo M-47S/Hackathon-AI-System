@@ -14,15 +14,8 @@ func Hello(ctx *gin.Context){
 
 // Данный Handler возвращает uuid нового чата а также 
 // дополнительные данные для записи в БД 
-// Необходимо ли user_id проверять при создании нового чата ? 
-// 4.1 POST /api/sessions
+// 4.1 POST /api/sessions (Наверное готово)
 func CreateSessionHandler(ctx *gin.Context){
-	// user_id := ctx.Query("user_id")
-	// if user_id == ""{
-	// 	ctx.JSON(400, gin.H{"error": "Параметр user_id должен быть"})
-	// 	return
-	// }
-
 	var session Session
 	uuid := uuid.NewString()
 	created_time := time.Now()
@@ -31,16 +24,16 @@ func CreateSessionHandler(ctx *gin.Context){
 	session.CreatedAt = created_time
 	globalDBCon.Create(&session)
 
-	var session_info SessionForm
-	session_info.created_at = created_time.GoString()
-	session_info.session_id = uuid
-	session_info.status = "active"
-	ctx.JSON(http.StatusOK, session_info)
+	var session_response SessionForm
+	session_response.CreatedAt = created_time.GoString()
+	session_response.SessionId = uuid
+	session_response.Status = "active"
+	ctx.JSON(http.StatusOK, session_response)
 	// Также необходимо записать в БД
 }
 
 
-// 4.2 POST /api/chat 
+// 4.2 POST /api/chat (Наверное готово)
 // Данный handler обрабатывает сообщение от пользователя в конкретном чате записывает его в историю а также отправяет LLM модели ждет ответ и отправялет обратно на front
 func UserMessageHandler(ctx *gin.Context) {
 	var user_request UserRequest
@@ -48,6 +41,12 @@ func UserMessageHandler(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON"})
 		return
 	}
+	err := InsertUserMessage(user_request)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать Сообщение в БД"})
+		return
+	}
+
 	ai_response, err := GetAIAnwser(user_request)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ"})
@@ -57,14 +56,19 @@ func UserMessageHandler(ctx *gin.Context) {
 }
 
 
-// Данный Handler необходим чтобы найти все сообщения Ai и USer по session_id для отрисовки пользователю
-// 4.3 GET /api/sessions/{session_id}/messages 
+// Данный Handler необходим чтобы найти все сообщения Ai и User по session_id для отрисовки пользователю
+// 4.3 GET /api/sessions/{session_id}/messages (Наверное готово)
 func ChatHistoryHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
 	_ = session_id
-	// тут дальше поиск из GORM по session_id 
-	// а после он вернет уже все в виде одного json и все четко
-	ctx.JSON(http.StatusOK, gin.H{"message" : "ok"})
+	var respons UserHistoryForm
+	history, err := GetAllFromDB[FrontHistoryMessageForm](session_id, &Messages{})
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error" : err.Error()})
+	}
+	respons.SessionId = session_id
+	respons.History = history
+	ctx.JSON(http.StatusOK, respons)
 
 }
 
@@ -79,8 +83,8 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	}
 	// дальше запрос сохраняем в БД а также созданную структуру LeadForm !!
 	var lead_form LeadForm
-	lead_form.created_at = time.Now().GoString()
-	lead_form.status = "new"
-	lead_form.lead_id = uuid.NewString()
+	lead_form.CreatedAt = time.Now().GoString()
+	lead_form.Status = "new"
+	lead_form.LeadId = uuid.NewString()
 	ctx.JSON(http.StatusCreated, lead_form)
 }
