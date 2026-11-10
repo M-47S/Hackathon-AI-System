@@ -1,8 +1,10 @@
 import logging
 import os
-from typing import List, Optional
+from typing import List, Any
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core import Settings
+from llama_index.core.embeddings import BaseEmbedding
+from pydantic import PrivateAttr
 
 from ..structs import Embedding
 
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 MODEL_PATH = os.getenv("EMB_PATH", r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Embedding\models\multilingual-e5-large")
 
 
-class EmbeddingModelWrapper:
+class EmbeddingWrapper(BaseEmbedding):
     """
     Обёртка над HuggingFaceEmbedding для модели intfloat/multilingual-e5-large.
     Инкапсулирует:
@@ -21,12 +23,24 @@ class EmbeddingModelWrapper:
       - опциональную установку модели глобально в LlamaIndex (Settings.embed_model).
     """
 
+    model_path: str = MODEL_PATH
+    device: str = "cpu" 
+    
+    _embed_model: HuggingFaceEmbedding = PrivateAttr()
+    
     def __init__(
         self,
         model_path: str = MODEL_PATH,
         device: str = "cpu",
         set_global: bool = True,
+        **kwargs: Any
     ):
+        super().__init__(
+            model_path=os.path.abspath(model_path),
+            device=device,
+            **kwargs
+        
+        )
         self.model_path = os.path.abspath(model_path)
         self.device = device
 
@@ -55,17 +69,21 @@ class EmbeddingModelWrapper:
 
         logger.info("Модель успешно загружена.")
 
-    def get_query_embedding(self, query: str) -> Embedding:
+    def _aget_query_embedding(self, query: str):
+        vector = self._embed_model._aget_query_embedding(query)
+        return Embedding(vector)
+    
+    def _get_query_embedding(self, query: str) -> Embedding:
         """Возвращает эмбеддинг для поискового запроса."""
         vector = self._embed_model.get_query_embedding(query)
         return Embedding(vector)
 
-    def get_text_embedding(self, text: str) -> Embedding:
+    def _get_text_embedding(self, text: str) -> Embedding:
         """Возвращает эмбеддинг для документа (чанка)."""
         vector = self._embed_model.get_text_embedding(text)
         return Embedding(vector)
 
-    def get_text_embedding_batch(
+    def _get_text_embedding_batch(
         self, texts: List[str], show_progress: bool = False
     ) -> List[Embedding]:
         """Возвращает эмбеддинги для списка текстов (документов)."""
@@ -74,6 +92,10 @@ class EmbeddingModelWrapper:
                 texts, show_progress=show_progress)
             )
         )
+        
+    @classmethod
+    def class_name(cls) -> str:
+        return "EmbeddingWrapper"
 
     @property
     def model(self) -> HuggingFaceEmbedding:
@@ -81,13 +103,13 @@ class EmbeddingModelWrapper:
         return self._embed_model
     
 if __name__ == "__main__":
-    model = EmbeddingModelWrapper()
+    model = EmbeddingWrapper()
     
     query = "Что такое закон Ома?"
     document = "Описывающий характеристики тока в цепи в зависимости от Силы тока, напряжения и сопротивления."
     
-    eq = model.get_query_embedding(query)
-    ed = model.get_text_embedding(document)
+    eq = model._get_query_embedding(query)
+    ed = model._get_text_embedding(document)
     
     similiriry = (eq*ed)/(eq.norm*ed.norm)
     

@@ -1,5 +1,5 @@
 # __init__.py
-from .wrapper import EmbeddingModelWrapper
+from .wrapper import EmbeddingWrapper
 
 
-__all__ = ["EmbeddingModelWrapper"]
+__all__ = ["EmbeddingWrapper"]
