@@ -62,3 +62,17 @@ type LeadForm struct {
 	status string `json:"status"`
 	created_at string `json:"created_at"`
 }
+
+
+// type LeadDataForManager{
+//   "items": [
+//     {
+//       "lead_id": "lead-001",
+//       "company": "ООО Компания",
+//       "status": "new",
+//       "problem": "Высокие расходы на электроэнергию",
+//       "recommended_product_ids": ["cloud_askue"],
+//       "created_at": "2026-11-09T12:35:00Z"
+//     }
+//   ]
+// }

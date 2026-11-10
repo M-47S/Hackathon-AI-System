@@ -21,7 +21,7 @@ func SetupRoutes() *gin.Engine{
 
 	// позже настрою Cookie 
 	r.GET("api/hello", Hello)
-	r.GET("api/sessons/:session_id/messages")
+	r.GET("api/sessions/:session_id/messages")
 
 
 	r.POST("api/sessions", CreateSessionHandler)
