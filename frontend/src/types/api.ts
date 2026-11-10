@@ -34,6 +34,13 @@ export interface ChatMessage {
 }
 
 //Запрос на отправку сообщения
+export interface ChatRequest {
+    session_id: string;
+    request_id: string;
+    message: string;
+}
+
+//Ответ на отправку сообщения
 export interface ChatResponse {
     session_id: string;
     request_id: string;

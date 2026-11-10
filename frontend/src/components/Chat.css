@@ -1,0 +1,115 @@
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 600px;
+    height: 100%;
+    background-color: #0a105e;
+    border-radius: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+}
+
+.chat-header {
+    padding: 20px;
+    text-align: center;
+    background-color: #0a105e;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.chat-header h1 {
+    color: #ffffff;
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+    margin: 0;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.chat-empty {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 20px;
+}
+
+.message-bubble {
+    padding: 12px 18px;
+    border-radius: 20px;
+    max-width: 80%;
+    word-wrap: break-word;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.message-user {
+    align-self: flex-end;
+    background-color: #e81a0c;
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.message-assistant {
+    align-self: flex-start;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+    border-bottom-left-radius: 4px;
+}
+
+.chat-input-form {
+    display: flex;
+    padding: 20px;
+    background-color: #0a105e;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.chat-input {
+    flex: 1;
+    padding: 14px 20px;
+    border-radius: 25px;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+    background-color: #ffffff;
+}
+
+.chat-submit {
+    margin-left: 15px;
+    padding: 0 25px;
+    border-radius: 25px;
+    border: none;
+    background-color: #e81a0c;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.chat-submit:hover {
+    opacity: 0.8;
+}
+
+.chat-submit:disabled {
+    background-color: #555;
+    color: #999;
+    cursor: not-allowed;
+}

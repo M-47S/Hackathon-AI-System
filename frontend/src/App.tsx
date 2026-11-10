@@ -1,8 +1,13 @@
+import { Chat } from "./components/Chat";
+import './App.css';
+
+
 function App() {
   return (
-    <div>
-      <h1>EnergyTool AI</h1>
-      <p>Тут будет чат</p>
+    <div className="app-layout">
+      <main className="main-content">
+        <Chat />
+      </main>
     </div>
   );
 }
