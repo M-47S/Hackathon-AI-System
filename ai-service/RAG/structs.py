@@ -5,25 +5,59 @@ from llama_index.core.schema import TextNode, NodeRelationship
 from typing import List, Dict, Union, Self
 from pathlib import Path
 import json
+from functools import total_ordering
 
-@dataclass()
+@total_ordering
 class Embedding:
     def __init__(self, vector: Union[List[float], ndarray]):
-       self._vector = array(vector, dtype=float).reshape((len(vector), ))
+       self._vector = np.array(vector, dtype=np.float32).reshape(-1)
+       self._size = len(self._vector)
 
     def __len__(self) -> int:
-        return len(self._vector) 
+        return self._size 
     
     def __add__(self, other: Self) -> Self:
         if not isinstance(other, Embedding):
-            ValueError("Vectors must have same types - 'Embedding'")
+            raise TypeError("Vectors must have same types - 'Embedding'")
         return Embedding(self._vector + other.vector)
         
-    
-    def __mul__(self, other: Self) -> float:
+    def __matmul__(self, other: 'Embedding') -> float:
+        # ИСПРАВЛЕНО: __matmul__ для скалярного произведения (@)
         if not isinstance(other, Embedding):
-            ValueError("Vectors must have same types - 'Embedding'")
-        return np.sum(self._vector * other.vector)
+            return NotImplemented
+        return float(np.sum(self._vector * other.vector))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Embedding):
+            return NotImplemented
+        return (
+            self._vector.shape == other._vector.shape
+            and np.allclose(self._vector, other._vector, atol=1e-6)
+        )
+
+    def __lt__(self, other: Self) -> bool:
+        if not isinstance(other, Embedding):
+            raise TypeError("Vectors must have same types - 'Embedding'")
+        if self._size != other._size:
+            raise ValueError(
+                f"Cannot compare Embeddings of different dimensions: "
+                f"{self._size} vs {other._size}"
+            )
+        return self.norm < other.norm
+
+    def __hash__(self) -> int:
+        return hash(self._vector.tobytes())
+    
+    def normalized(self) -> 'Embedding':
+        """Возвращает L2-нормализованную копию (для косинусного сходства)."""
+        norm = self.norm
+        if norm == 0:
+            return Embedding(self._vector)
+        return Embedding(self._vector / norm)
+    
+    @property
+    def size(self) -> int:
+        return self._size
     
     @property
     def norm(self) -> float:
@@ -32,6 +66,35 @@ class Embedding:
     @property
     def vector(self):
         return self._vector
+    
+    def _format_vector(self, max_items: int = 8, precision: int = 4) -> str:
+        """Строка-представление вектора с обрезкой, если он длинный."""
+        v = self._vector
+        opts = dict(precision=precision, separator=', ', suppress_small=True)
+
+        if len(v) <= max_items:
+            return np.array2string(v, **opts)
+
+        half = max_items // 2
+        head = np.array2string(v[:half], **opts)[:-1]         
+        tail = np.array2string(v[-half:], **opts)[1:]          
+        return f"{head} ... {tail}"
+
+    def __repr__(self) -> str:
+        return (
+            f"Embedding(\n"
+            f"  vector: {self._format_vector()}\n"
+            f"  size:   {self._size}\n"
+            f"  norm:   {self.norm:.6f}\n"
+            f")"
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+BASE_PNAME = Path("parents.json")
+BASE_CNAME = Path("children.json")
 
 class ChunkCollection:
     """
@@ -44,9 +107,6 @@ class ChunkCollection:
         
         #Cловарь для мгновенного поиска родителя по ID: {parent_id: TextNode}
         self._parent_map: Dict[str, TextNode] = {}
-        
-        self.pname = Path("parents.json")
-        self.cname = Path("children.json")
 
     def __len__(self) -> int:
         return len(self._children)
@@ -90,11 +150,11 @@ class ChunkCollection:
         if isinstance(path_to_dir, str):
             path_to_dir: Path = Path(path_to_dir)
             
-        ppath = path_to_dir / self.pname
+        ppath = path_to_dir / BASE_PNAME
         ppath.touch()
         self.__save_file(self._parents, ppath)
         
-        cpath = path_to_dir / self.cname
+        cpath = path_to_dir / BASE_CNAME
         cpath.touch()
         self.__save_file(self._children, cpath)
 
@@ -104,10 +164,10 @@ class ChunkCollection:
         path_to_dir = Path(path_to_dir)
         collection = cls()
 
-        for parent in collection.__load_file(path_to_dir / collection.pname):
+        for parent in collection.__load_file(path_to_dir / BASE_PNAME):
             collection.add_parent(parent)
 
-        collection.add_children(collection.__load_file(path_to_dir / collection.cname))
+        collection.add_children(collection.__load_file(path_to_dir / BASE_CNAME))
         return collection
     
     @property
@@ -117,3 +177,8 @@ class ChunkCollection:
     @property
     def parents(self):
         return self._parents
+    
+@dataclass(frozen=True)
+class VectorHit:
+    chunk_id: int
+    score: float
