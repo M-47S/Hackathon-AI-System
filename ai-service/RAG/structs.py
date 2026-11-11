@@ -1,8 +1,9 @@
 from numpy import ndarray, array
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
 from llama_index.core.schema import TextNode, NodeRelationship
-from typing import List, Dict, Union, Self
+from typing import List, Dict, Union, Self, Optional, Any
+from enum import Enum
 from pathlib import Path
 import json
 from functools import total_ordering
@@ -182,3 +183,71 @@ class ChunkCollection:
 class VectorHit:
     chunk_id: int
     score: float
+
+
+@dataclass(frozen=True)
+class Document:
+    document_id: str
+    filename: str
+    relative_path: str
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    sha256: Optional[str] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def resolve_path(self, documents_root: Path) -> Path:
+        return (Path(documents_root) / self.relative_path).resolve()
+
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> "Document":
+        return cls(
+            document_id=raw["document_id"],
+            filename=raw["filename"],
+            relative_path=raw["relative_path"],
+            mime_type=raw.get("mime_type"),
+            size_bytes=raw.get("size_bytes"),
+            sha256=raw.get("sha256"),
+            extra=dict(raw.get("extra") or {}),
+        )
+
+
+@dataclass(frozen=True)
+class Chunk:
+    chunk_id: int
+    document_id: str
+    text: str
+    position: int
+    section_title: Optional[str] = None
+    parent_chunk_id: Optional[int] = None
+    page: Optional[int] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> "Chunk":
+        return cls(
+            chunk_id=raw["chunk_id"],
+            document_id=raw["document_id"],
+            text=raw["text"],
+            position=raw["position"],
+            section_title=raw.get("section_title"),
+            parent_chunk_id=raw.get("parent_chunk_id"),
+            page=raw.get("page"),
+            char_start=raw.get("char_start"),
+            char_end=raw.get("char_end"),
+        )
+
+
+class ContextMode(str, Enum):
+    STRICT = "strict"   # только сам чанк
+    PARENT = "parent"   # текст родителя (Small-to-Big)
+    WINDOW = "window"   # соседи ± window_size
+
+
+@dataclass(frozen=True)
+class ChunkContext:
+    """Что реально идёт в промпт LLM + метаданные для debug-режима."""
+    chunk: Chunk
+    context_text: str
+    parent: Optional[Chunk] = None
+    window: tuple[Chunk, ...] = ()
