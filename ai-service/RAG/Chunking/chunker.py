@@ -2,7 +2,7 @@ import logging
 from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo
-from .structs import ChunkCollection
+from ..structs import ChunkCollection
 from pathlib import Path
 
 
