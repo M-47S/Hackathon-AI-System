@@ -5,6 +5,9 @@ import './App.css';
 function App() {
   return (
     <div className="app-layout">
+      <aside>
+        
+      </aside>
       <main className="main-content">
         <Chat />
       </main>

@@ -1,11 +1,11 @@
 .chat-container {
     display: flex;
     flex-direction: column;
+    grid-template-rows: 9fr 1fr;
     width: 100%;
-    max-width: 600px;
     height: 100%;
-    background-color: #0a105e;
-    border-radius: 30px;
+    background-color: #f0f1f0;
+    border-radius: 0;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     overflow: hidden;
 }
@@ -27,8 +27,10 @@
 
 .chat-messages {
     flex: 1;
-    padding: 20px;
+    padding-top: 10px;
+    width: 67%;
     display: flex;
+    align-self: center;
     flex-direction: column;
     gap: 15px;
     overflow-y: auto;
@@ -54,7 +56,9 @@
     padding: 12px 18px;
     border-radius: 20px;
     max-width: 80%;
-    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
     font-size: 1rem;
     line-height: 1.4;
 }
@@ -75,9 +79,13 @@
 
 .chat-input-form {
     display: flex;
+    align-self: center;
+    margin-top: 10px;
+    margin-bottom: 40px;
+    width: 67%;
     padding: 20px;
-    background-color: #0a105e;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: #36393E;
+    border-radius: 20px;
     flex-shrink: 0;
 }
 
@@ -89,6 +97,10 @@
     outline: none;
     font-size: 1rem;
     background-color: #ffffff;
+    scrollbar-width: none;
+    resize: none;
+    max-height: 80px;
+    line-height: 1.4;
 }
 
 .chat-submit {

@@ -7,14 +7,20 @@ export function Chat() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    function handleSend(e: SyntheticEvent<HTMLFormElement>) {
-        e.preventDefault();
+    useEffect(() => {
+        if (textAreaRef.current){
+            textAreaRef.current.style.height = 'auto';
+            textAreaRef.current.style.height = `${textAreaRef.current.scrollHeight}px`;
+        }
+    }, [input]);
 
+    function sendMessage() {
         if (!input.trim()) return;
 
         const newMessage: ChatMessage = {
@@ -27,12 +33,22 @@ export function Chat() {
         setMessages((prev) => [...prev, newMessage]);
         setInput('');
     }
+    
+    function handleFormSubmit(e: SyntheticEvent<HTMLFormElement>) {
+        e.preventDefault();
+        sendMessage();
+    }
+
+    function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    }
+
 
     return (
         <div className="chat-container">
-            <header className="chat-header">
-                <h1>ENERGYTOOL AI</h1>
-            </header>
 
             <main className="chat-messages">
                 {messages.length === 0 ? (<p className="chat-empty">Начните диалог</p>) : (messages.map((msg) => (<div
@@ -43,13 +59,15 @@ export function Chat() {
                 <div ref={messagesEndRef} />
             </main>
 
-            <form onSubmit={handleSend} className="chat-input-form">
-                <input 
-                    type="text"
+            <form onSubmit={handleFormSubmit} className="chat-input-form">
+                <textarea 
+                    ref={textAreaRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Введите текст"
                     className="chat-input"
+                    rows={1}
+                    onKeyDown={handleKeyDown}
                 />
                 <button 
                     type="submit"
