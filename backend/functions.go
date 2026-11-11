@@ -24,6 +24,8 @@ func InitTables() {
 }
 
 func InitDB() {
+	log.Println("Удаление старого Образа (пока мы тестируем)")
+	_ = exec.Command("docker", "compose", "down", "-v").Run()
 	log.Println("Запуск docker-compose.yml")
 	cmd := exec.Command("docker", "compose", "up", "-d", "db")
 	output, err := cmd.CombinedOutput()

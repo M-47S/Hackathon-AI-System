@@ -5,9 +5,9 @@ services:
     image: postgres:16-alpine
     container_name: hakaton-postgres
     environment:
-      POSTGRES_USER: {DB_USER:-postgres}
-      POSTGRES_PASSWORD: {DB_PASSWORD:-secret}
-      POSTGRES_DB: {DB_NAME:-mts}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: ${DB_NAME:-mts}
     ports:
       - "5433:5432"
     volumes:
