@@ -16,7 +16,7 @@ type Messages struct {
 	MessageId string `gorm:"primaryKey;type:uuid" json:"message_id"` 
 	SessionId string `gorm:"type:text;not null;index" json:"session_id"`
 	Role string `gorm:"type:varchar(20);not null" json:"role"`
-	Action string `gorm:type:text; json:"action"`
+	Action string `gorm:"type:text"; json:"action"`
 	Content string `gorm:"type:text;not null" json:"content"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }

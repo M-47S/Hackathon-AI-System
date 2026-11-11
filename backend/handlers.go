@@ -63,8 +63,8 @@ func UserMessageHandler(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ", "details" : err.Error()})
 		return
 	}
+	//Необходимо записать ответ ИИ в БД
 	LogStruct("Ответ ИИ", ai_response)
-	// тут необходимо записать в БД и отправка в Python а также получение ответа, но пока хз каков там формат, потому то что в примере != итог так что пока 200 ответ
 	ctx.JSON(http.StatusOK, ai_response)
 }
 

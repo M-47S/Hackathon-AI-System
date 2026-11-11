@@ -4,14 +4,14 @@ package main
 type SessionForm struct{
 	SessionId string `json:"session_id"`
 	Status string `json:"status"`
-	CreatedAt string `json:created_at`
+	CreatedAt string `json:"created_at"`
 }
 
 
 // Структура для принятия запроса с Frontend /api/chat
 type UserRequest struct{
 	SessionId string `json:"session_id"`
-	RequestId string `json:request_id""`
+	RequestId string `json:"request_id"`
 	Message string `json:"message"`
 }
 
@@ -73,7 +73,7 @@ type ManagerStatementForm struct {
 	Session_id string `json:"session_id"`
 	Submission_id string `json:"submission_id"`
 	Contact UserContactData `json:"contact"`
-	Consent bool `json:consent`
+	Consent bool `json:"consent"`
 }
 
 // Структура которая возвращается с информацией о созданной заявке /api/leads

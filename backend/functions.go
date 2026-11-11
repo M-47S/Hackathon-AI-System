@@ -133,7 +133,7 @@ func InsertUserMessage(json_data UserRequest) error {
 	user_message.SessionId = json_data.SessionId
 	user_message.Role = "user"
 	user_message.Action = ""
-	user_message.Content = json_data.SessionId
+	user_message.Content = json_data.Message
 	user_message.CreatedAt = time.Now()
 	err := globalDBCon.Create(&user_message).Error
 	return err
