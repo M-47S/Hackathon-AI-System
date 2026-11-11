@@ -1,8 +1,10 @@
-package main 
+package main
 
 import (
+	"log"
 	"net/http"
 	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -19,17 +21,21 @@ func CreateSessionHandler(ctx *gin.Context){
 	var session Session
 	uuid := uuid.NewString()
 	created_time := time.Now()
-
 	session.SessionId = uuid
 	session.CreatedAt = created_time
-	globalDBCon.Create(&session)
-
+	LogStruct("Структура сессии для записи в БД", session)
+	err := globalDBCon.Create(&session).Error
+	if err != nil {
+		log.Printf("Неудалось создать запись о Сессии в БД | err: %s", err.Error())
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать сессию БД", "details": err.Error()})
+		return
+	}
 	var session_response SessionForm
 	session_response.CreatedAt = created_time.GoString()
 	session_response.SessionId = uuid
 	session_response.Status = "active"
+	LogStruct("Структура ответа при создании Сессии", session_response)
 	ctx.JSON(http.StatusOK, session_response)
-	// Также необходимо записать в БД
 }
 
 
@@ -38,19 +44,25 @@ func CreateSessionHandler(ctx *gin.Context){
 func UserMessageHandler(ctx *gin.Context) {
 	var user_request UserRequest
 	if err := ctx.ShouldBindJSON(&user_request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON"})
+		log.Printf("Неудалось обработать пришедший JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON", "details": err.Error()})
 		return
 	}
+	
+	LogStruct("Сообщение от пользователя", user_request)
 	err := InsertUserMessage(user_request)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать Сообщение в БД"})
+		log.Printf("Неудалось записать в Struct в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать Сообщение в БД", "details" : err.Error()})
 		return
 	}
 
 	ai_response, err := GetAIAnwser(user_request)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ"})
+		log.Printf("Неудалось получить ответ от ИИ | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ", "details" : err.Error()})
 	}
+	LogStruct("Ответ ИИ", ai_response)
 	// тут необходимо записать в БД и отправка в Python а также получение ответа, но пока хз каков там формат, потому то что в примере != итог так что пока 200 ответ
 	ctx.JSON(http.StatusOK, ai_response)
 }

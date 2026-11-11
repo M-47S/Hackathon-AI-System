@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // При помощи GORM создаем или проверяем что таблицы есть через AutoMigrate
@@ -101,12 +102,14 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 	ai_request.Message = json_data.Message
 	history, err := GetAllFromDB[AiHistoryMessageForm](json_data.SessionId, &Messages{})
 	if err != nil {
+		log.Printf("Ошибка при поиске истории сессии | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
 	ai_request.History = history
 
 	customer_profile, err := GetOneFromDB[CustomerProfileForm](json_data.SessionId, &Profiles{})
 	if err != nil {
+		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
 	ai_request.CustomerProfile = customer_profile
@@ -116,6 +119,7 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 		SetResult(&ai_response).
 		Post("http://localhost/v1/chat")
 	if err != nil {
+		log.Printf("Ошибка при отправке запроса ИИ | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
 	return ai_response, nil
@@ -133,4 +137,14 @@ func InsertUserMessage(json_data UserRequest) error {
 	user_message.CreatedAt = time.Now()
 	err := globalDBCon.Create(&user_message).Error
 	return err
+}
+
+
+func initLogger(){
+	spew.Config.Indent = "  "
+	spew.Config.DisablePointerAddresses = true
+}
+
+func LogStruct(label string, data interface{}){
+	log.Printf(" %s\n%s", label, spew.Sdump(data))
 }

@@ -15,6 +15,7 @@ func main(){
 	InitDB()
 	SetupDBConn()
 	InitTables()
+	initLogger()
 	r := SetupRoutes()
 	
 	log.Print("The server was opened at http://localhost:8080")
