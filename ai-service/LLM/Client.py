@@ -1,8 +1,10 @@
+import json
 import logging
-from typing import Any, List, Optional, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 import httpx
 import openai
+import urllib3
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -13,7 +15,9 @@ from .exceptions import (
     LLMResponseParseError,
     LLMTimeoutError,
 )
-from .structs import ChatRequest, LLMMessage, LLMResponse, LLMUsage
+from .structs import ChatRequest, LLMResponse, LLMUsage
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +25,6 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMClient:
-    """
-    Тонкая обёртка над OpenAI Responses API.
-    Явно передаёт контекст в виде списка сообщений (input).
-    Поддерживает structured output через Pydantic-модели.
-    """
-
     def __init__(
         self,
         base_url: Optional[str] = None,
@@ -35,91 +33,106 @@ class LLMClient:
         token_provider: Optional[TokenProvider] = None,
         timeout: float = 60.0,
         max_retries: int = 2,
-        verify_ssl: bool = False, # <-- ДОБАВЛЕНО: отключаем проверку по умолчанию для GigaChat
+        verify_ssl: bool = False,
     ):
+        self._base_url = base_url
+        self._api_key = api_key
         self._default_model = default_model
         self._token_provider = token_provider
-        
-        # Создаем httpx клиент с отключенной проверкой SSL
-        # (или можно передать verify="/path/to/russian_ca.pem", если хотите безопасно)
-        http_client = httpx.Client(verify=verify_ssl, timeout=timeout)
-
-        if token_provider is not None:
-            self._client = OpenAI(
-                base_url=base_url,
-                api_key="placeholder",  # Заглушка
-                timeout=timeout,
-                max_retries=max_retries,
-                http_client=http_client, 
-            )
-        else:
-            self._client = OpenAI(
-                base_url=base_url,
-                api_key=api_key,
-                timeout=timeout,
-                max_retries=max_retries,
-                http_client=http_client,
-            )
+        self._max_retries = max_retries
+        self._http_client = httpx.Client(verify=verify_ssl, timeout=timeout)
 
     # ---------- public ----------
 
-    def chat(self, request: ChatRequest) -> LLMResponse:
-        """
-        Основной метод. Возвращает LLMResponse с текстом и (опционально) parsed.
-        """
-        
-        if self._token_provider:
-            self._client._client.headers["Authorization"] = self._auth_header()
-        
-        model = request.model or self._default_model
-        input_items = [msg.to_openai_input() for msg in request.messages]
+    def chat(self, request: ChatRequest, _retry_depth: int = 0) -> LLMResponse:
+        token = self._token_provider.get_token() if self._token_provider else self._api_key
+        if not token:
+            raise LLMError("Не передан ни token_provider, ни api_key")
 
-        # instructions — это системный промпт в Responses API[reference:2].
-        # Если пользователь передал SYSTEM-сообщение, выносим его в instructions.
-        instructions = request.instructions
-        if instructions is None:
-            system_msgs = [m for m in request.messages if m.role == "system"]
-            if system_msgs:
-                instructions = "\n\n".join(m.content for m in system_msgs)
-                input_items = [
-                    item for item, msg in zip(input_items, request.messages)
-                    if msg.role != "system"
-                ]
+        client = OpenAI(
+            base_url=self._base_url,
+            api_key=token,
+            timeout=self._http_client.timeout,
+            max_retries=self._max_retries,
+            http_client=self._http_client,
+        )
+
+        model = request.model or self._default_model
+
+        messages = [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in request.messages
+        ]
+        if request.instructions and not any(m["role"] == "system" for m in messages):
+            messages.insert(0, {"role": "system", "content": request.instructions})
+
+        # ---- Structured output ----
+        want_json = request.response_format is not None
+        if want_json:
+            schema_json = json.dumps(
+                request.response_format.model_json_schema(),
+                ensure_ascii=False,
+            )
+            # ⚠️ Ключевой момент: явно запрещаем модели воспроизводить схему.
+            schema_hint = (
+                "Ответь ОДНИМ валидным JSON-объектом с реальными данными. "
+                "Без markdown-обёрток и пояснений. "
+                "Структура полей должна соответствовать схеме ниже, "
+                "но заполняй её фактическими значениями. "
+                "НЕ повторяй саму схему, НЕ добавляй служебные поля "
+                "'properties', 'required', 'type', 'title', '$defs'. "
+                "В ответе должны быть только ключи из схемы с их значениями. "
+                f"Схема: {schema_json}"
+            )
+            if messages and messages[0]["role"] == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{schema_hint}"
+            else:
+                messages.insert(0, {"role": "system", "content": schema_hint})
 
         kwargs: dict[str, Any] = {
             "model": model,
-            "input": input_items,
+            "messages": messages,
             "temperature": request.temperature,
         }
-        if instructions:
-            kwargs["instructions"] = instructions
         if request.max_output_tokens:
-            kwargs["max_output_tokens"] = request.max_output_tokens
+            kwargs["max_tokens"] = request.max_output_tokens
+        if want_json:
+            kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            if request.response_format is not None:
-                # Structured output через .parse()[reference:3]
-                response = self._client.responses.parse(
-                    text_format=request.response_format,
-                    **kwargs,
-                )
-                parsed = response.output_parsed
-                text = response.output_text
-            else:
-                response = self._client.responses.create(**kwargs)
-                parsed = None
-                text = response.output_text
+            try:
+                response = client.chat.completions.create(**kwargs)
+            except openai.BadRequestError:
+                if want_json:
+                    kwargs.pop("response_format", None)
+                    response = client.chat.completions.create(**kwargs)
+                else:
+                    raise
+
+            text = response.choices[0].message.content or ""
+            parsed = None
+            if want_json and text:
+                parsed = self._parse_structured(text, request.response_format)
+
+        except openai.AuthenticationError as e:
+            if self._token_provider and _retry_depth < 1:
+                logger.warning("Получен 401. Инвалидируем токен и пробуем снова...")
+                self._token_provider.invalidate()
+                return self.chat(request, _retry_depth=_retry_depth + 1)
+            raise LLMError(f"Ошибка авторизации: {e}") from e
+
         except openai.RateLimitError as e:
             raise LLMRateLimitError(str(e)) from e
+
         except openai.APITimeoutError as e:
             raise LLMTimeoutError(str(e)) from e
+
         except openai.APIError as e:
-            # 401 при протухшем токене GigaChat — инвалидируем и пробуем ещё раз
-            if self._token_provider and "401" in str(e):
-                self._token_provider.invalidate()
-                self._client._client.headers["Authorization"] = self._auth_header()
-                return self.chat(request)  # один повтор
-            raise LLMError(str(e)) from e
+            status_code = getattr(e, "status_code", "unknown")
+            body = getattr(e, "body", "unknown")
+            logger.error(f"APIError {status_code}: {body}")
+            raise LLMError(f"APIError {status_code}: {body}") from e
+
         except Exception as e:
             if isinstance(e, LLMError):
                 raise
@@ -131,37 +144,76 @@ class LLMClient:
         return LLMResponse(
             text=text,
             model=getattr(response, "model", model),
-            finish_reason=getattr(response, "status", None),
-            usage=self._extract_usage(response),
+            finish_reason=response.choices[0].finish_reason,
+            usage=self._extract_usage_chat(response),
             raw=response,
             parsed=parsed,
         )
 
     # ---------- helpers ----------
 
-    def _auth_header(self) -> str:
-        if not self._token_provider:
-            return self._client._client.headers.get("Authorization", "")
-        token = self._token_provider.get_token()
-        return f"Bearer {token}"
+    @staticmethod
+    def _parse_structured(text: str, model_cls: Type[T]) -> T:
+        """
+        Парсит JSON-строку в Pydantic-модель.
+        Защита от:
+          - markdown-обёрток ```json ... ```
+          - моделей, которые возвращают саму JSON Schema с заполненными
+            значениями внутри 'properties' (типично для GigaChat).
+        """
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```", 2)[1] if cleaned.count("```") >= 2 else cleaned
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip("`\n ")
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise LLMResponseParseError(
+                f"Ответ не является валидным JSON: {e}\n"
+                f"Сырой ответ: {text[:500]}"
+            ) from e
+
+        # 🔧 Защита от GigaChat: если пришла "схема" вместо данных —
+        # достаём значения из data["properties"].
+        if (
+            isinstance(data, dict)
+            and data.get("type") == "object"
+            and isinstance(data.get("properties"), dict)
+            and "properties" not in model_cls.model_fields  # не путать с реальным полем
+        ):
+            logger.warning(
+                "Модель вернула JSON Schema вместо данных. "
+                "Извлекаю значения из 'properties'."
+            )
+            data = data["properties"]
+
+        try:
+            return model_cls.model_validate(data)
+        except Exception as e:
+            raise LLMResponseParseError(
+                f"Не удалось распарсить structured output: {e}\n"
+                f"Сырой ответ: {text[:500]}"
+            ) from e
 
     @staticmethod
-    def _extract_usage(response: Any) -> Optional[LLMUsage]:
+    def _extract_usage_chat(response: Any) -> Optional[LLMUsage]:
         usage = getattr(response, "usage", None)
         if usage is None:
             return None
         return LLMUsage(
-            input_tokens=getattr(usage, "input_tokens", 0),
-            output_tokens=getattr(usage, "output_tokens", 0),
+            input_tokens=getattr(usage, "prompt_tokens", 0),
+            output_tokens=getattr(usage, "completion_tokens", 0),
             total_tokens=getattr(usage, "total_tokens", 0),
         )
-        
-        
+    
 if __name__ == "__main__":
     from .auth import GigaChatTokenProvider
     import os
     from dotenv import load_dotenv
-    from .structs import Role
+    from .structs import Role, LLMMessage
 
     
     if os.path.exists(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env"):
