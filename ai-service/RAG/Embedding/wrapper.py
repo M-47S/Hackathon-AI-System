@@ -111,6 +111,6 @@ if __name__ == "__main__":
     eq = model._get_query_embedding(query)
     ed = model._get_text_embedding(document)
     
-    similiriry = (eq*ed)/(eq.norm*ed.norm)
+    similiriry = (eq @ ed)/(eq.norm*ed.norm)
     
     print(similiriry)
