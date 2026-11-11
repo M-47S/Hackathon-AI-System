@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -22,8 +23,20 @@ func InitTables() {
 	log.Print("Таблицы успешно созданы")
 }
 
+func InitDB() {
+	log.Println("Запуск docker-compose.yml")
+	cmd := exec.Command("docker", "compose", "up", "-d", "db")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("Неудалось инициализировать БД, err: %v log: %v", err, string(output))
+	}
+	log.Println("Ждем инициализацию БД")
+	time.Sleep(5 * time.Second)
+	log.Println("Контейнер успешно инициализирован")
+}
+
 // Данная функция инициализирует подключение к DB а также настраивает Connection Pool
-func SetupDB() {
+func SetupDBConn() {
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Критическая ошибка: Неудалось загрузить .env")
 	}
