@@ -25,7 +25,7 @@ type Profiles struct {
 	SessionId string `gorm:"type:text;primaryKey" json:"session_id"`
 	ObjectCount int `gorm:"type:int;not null" json:"object_count"`
 	Problem string `gorm:"type:text;not null" json:"problem"`
-	BussinesType string `gorm:"type:text;not null" json:"bussines_type"`
+	BusinessType string `gorm:"type:text;not null" json:"business_type"`
 	MeteringMethod string `gorm:"type:text" json:"metering_method"`
 }
 
