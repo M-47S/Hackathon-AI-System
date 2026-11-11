@@ -50,6 +50,7 @@ async function request<T>(
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
+            console.log(data);
             const code = data?.error_code ?? `HTTP_${response.status}`;
             const message = data?.detail ?? `Запрос завершился с кодом ${response.status}`;
             throw new ApiError(response.status, code, message); 

@@ -61,7 +61,6 @@ export function Chat() {
                 request_id: Date.now().toString(),
                 message: userText,
             });
-
             const assistantMessage: ChatMessage = {
                 id: response.message.id,
                 role: 'assistant',
@@ -70,9 +69,10 @@ export function Chat() {
                 action: response.action,
                 products: response.products,
             };
-
+            
             setMessages((prev) => [...prev, assistantMessage]);
         } catch (err: any) {
+            console.error(err)
             setError(err.message || 'Ошибка при отправке сообщения');
             setInput(userText);
         } finally {
