@@ -104,6 +104,7 @@ class MarkdownChunker:
                     position=parent_chunk.position + i + 1,
                     section_title=parent_chunk.section_title,
                     parent_chunk_id=parent_chunk_id,
+                    is_leaf=True,
                 ))
 
         all_chunks = parent_chunks + leaf_chunks

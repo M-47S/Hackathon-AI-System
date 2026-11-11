@@ -147,6 +147,7 @@ class Chunk:
     page: Optional[int] = None
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+    is_leaf: bool = False
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Chunk":
@@ -160,6 +161,7 @@ class Chunk:
             page=raw.get("page"),
             char_start=raw.get("char_start"),
             char_end=raw.get("char_end"),
+            is_leaf=raw.get("is_leaf", False), 
         )
 
 
