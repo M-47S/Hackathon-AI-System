@@ -22,7 +22,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Tuple, Union, Protocol, runtime_checkable
 
 from .structs import (
     Chunk,
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from .Chunking import MarkdownChunker
     from .Embedding import EmbeddingWrapper
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +51,7 @@ class RetrievedChunk:
     """Результат поиска: чанк + его релевантность (cosine)."""
     chunk: Chunk
     score: float
+    reranked: bool = False
 
 
 @dataclass
@@ -72,6 +74,18 @@ class FillStats:
             s += f" [{preview}{'...' if len(self.skipped) > 3 else ''}]"
         return s
 
+@runtime_checkable
+class RerankerLike(Protocol):
+    """
+    Duck-type контракт для реранкеров.
+    Ему соответствуют и LocalReranker, и QwenReranker — без наследования.
+    """
+    def rerank(
+        self,
+        query: str,
+        documents: List[str],
+        top_n: int = 5,
+    ) -> List[Tuple[int, float]]: ...
 
 # ---------------------------------------------------------------------------
 # Search
@@ -85,50 +99,94 @@ def pipeline_search(
     min_score: Optional[float] = None,
     chunk_filter: Optional[Callable[[Chunk], bool]] = None,
     oversample: int = 3,
+    reranker: Optional[RerankerLike] = None,
+    query_text: Optional[str] = None,
+    rerank_oversample: int = 5,
 ) -> List[RetrievedChunk]:
     """
-    Возвращает top_k наиболее релевантных чанков по эмбеддингу query.
+    Возвращает top_k релевантных чанков.
+
+    Два режима ранжирования:
+
+    1) Reranker=False (по умолчанию):
+       FAISS top-K (при наличии chunk_filter — с oversample).
+       score — cosine из FAISS, шкала примерно [-1, 1].
+
+    2) Reranker задан И query_text задан:
+       FAISS top-(top_k * rerank_oversample) → фильтр → reranker → top_k.
+       score — от реранкера (logit, шкала зависит от модели).
+       Поле `reranked=True` позволяет отличить режимы.
 
     Args:
-        doc_store: хранилище чанков (текст, метаданные, иерархия).
-        vec_store: FAISS-индекс для поиска по эмбеддингам.
-        query: эмбеддинг запроса (query-side, с префиксом "query:").
-        top_k: сколько чанков вернуть после фильтрации.
-        min_score: минимальный cosine (для нормализованных ≈ -1..1).
-        chunk_filter: предикат пост-фильтрации, например:
-            lambda c: c.document_id == "23-solar"
-        oversample: во сколько раз «переспросить» у FAISS, чтобы после
-            фильтрации осталось top_k. Игнорируется, если фильтра нет.
+        query:            эмбеддинг запроса (для FAISS).
+        query_text:       исходный текст запроса (для реранкера).
+                          Обязателен, если передан reranker.
+        reranker:         любой объект с методом rerank(query, documents, top_n).
+        rerank_oversample: во сколько раз расширить FAISS-выборку,
+                          чтобы реранкеру было из чего выбирать.
+                          Для top_k=3 и rerank_oversample=5 → FAISS вернёт 15.
     """
     if top_k <= 0:
         return []
 
-    search_k = top_k * max(1, oversample) if chunk_filter else top_k
+    use_reranker = reranker is not None and query_text is not None
+    if reranker is not None and query_text is None:
+        logger.warning(
+            "pipeline_search: передан reranker, но не передан query_text — "
+            "реранкер будет проигнорирован."
+        )
 
-    hits: List[VectorHit] = vec_store.search(
-        query, top_k=search_k, min_score=min_score
-    )
+    # 1. Сколько запросить у FAISS
+    if use_reranker:
+        search_k = top_k * max(1, rerank_oversample)
+    elif chunk_filter is not None:
+        search_k = top_k * max(1, oversample)
+    else:
+        search_k = top_k
+
+    # 2. FAISS
+    hits = vec_store.search(query, top_k=search_k, min_score=min_score)
     if not hits:
         return []
 
+    # 3. Достаём чанки (сохраняя порядок FAISS)
     chunk_map = {c.chunk_id: c for c in doc_store.get_chunks(h.chunk_id for h in hits)}
-
-    results: List[RetrievedChunk] = []
-    for hit in hits:
-        chunk = chunk_map.get(hit.chunk_id)
+    ordered_chunks: List[Chunk] = []
+    for h in hits:
+        chunk = chunk_map.get(h.chunk_id)
         if chunk is None:
             logger.warning(
                 "pipeline_search: chunk_id=%s отсутствует в DocumentStore "
-                "(рассинхронизация индексов?)", hit.chunk_id
+                "(рассинхронизация индексов?)", h.chunk_id,
             )
             continue
-        if chunk_filter is not None and not chunk_filter(chunk):
-            continue
-        results.append(RetrievedChunk(chunk=chunk, score=hit.score))
-        if len(results) >= top_k:
-            break
+        ordered_chunks.append(chunk)
 
-    return results
+    # 4. Hard-фильтр (до реранкера — сужаем кандидатов)
+    if chunk_filter is not None:
+        ordered_chunks = [c for c in ordered_chunks if chunk_filter(c)]
+
+    if not ordered_chunks:
+        return []
+
+    # 5. Reranker (soft-ranking)
+    if use_reranker:
+        reranked = reranker.rerank(
+            query=query_text,
+            documents=[c.text for c in ordered_chunks],
+            top_n=top_k,
+        )
+        return [
+            RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
+            for idx, score in reranked
+        ]
+
+    # 6. Fallback: score привязан к chunk_id (корректно при наличии фильтра)
+    hit_score = {h.chunk_id: h.score for h in hits}
+    return [
+        RetrievedChunk(chunk=c, score=hit_score[c.chunk_id], reranked=False)
+        for c in ordered_chunks[:top_k]
+    ]
 
 
 def pipeline_search_with_context(
@@ -141,15 +199,23 @@ def pipeline_search_with_context(
     min_score: Optional[float] = None,
     chunk_filter: Optional[Callable[[Chunk], bool]] = None,
     oversample: int = 3,
+    reranker: Optional[RerankerLike] = None,
+    query_text: Optional[str] = None,
+    rerank_oversample: int = 5,
 ) -> List[ChunkContext]:
     """
-    То же, что pipeline_search, но сразу возвращает ChunkContext:
-    чанк + контекст (родитель или окно соседей) для промпта LLM.
+    То же, что pipeline_search, но возвращает ChunkContext с поднятым
+    контекстом (parent / window) для промпта LLM.
     """
     hits = pipeline_search(
         doc_store, vec_store, query,
-        top_k=top_k, min_score=min_score,
-        chunk_filter=chunk_filter, oversample=oversample,
+        top_k=top_k,
+        min_score=min_score,
+        chunk_filter=chunk_filter,
+        oversample=oversample,
+        reranker=reranker,
+        query_text=query_text,
+        rerank_oversample=rerank_oversample,
     )
     return [
         doc_store.get_chunk_with_context(
@@ -157,8 +223,6 @@ def pipeline_search_with_context(
         )
         for hit in hits
     ]
-
-
 # ---------------------------------------------------------------------------
 # Fill
 # ---------------------------------------------------------------------------
@@ -249,7 +313,7 @@ def pipeline_fill_store(
         # --- 4. Embedding (в памяти) ---
         try:
             embeddings = embedder._get_text_embedding_batch(
-                [c.text for c in leaf_chunks]
+                [c.embedding_text  for c in leaf_chunks]
             )
         except Exception as e:
             logger.exception("pipeline_fill_store: embedding error %s", path)
@@ -274,7 +338,7 @@ def pipeline_fill_store(
                 sha256=_sha256(path),
             )
             doc_store.add_document(document)
-            doc_store.add_chunks(chunks)             # здесь же двигается next_chunk_id
+            doc_store.add_chunks(chunks)             
             vec_store.add(
                 embedding=embeddings,
                 idx=[c.chunk_id for c in leaf_chunks],
@@ -408,9 +472,10 @@ def _sha256(path: Path, chunk_size: int = 1 << 20) -> str:
 if __name__ == "__main__":
     # Запуск:  python -m RAG.pipelines
     import sys
+    import time
 
     DATA_DIR = Path(
-        r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\Data Knowledge"
+            r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\Data Knowledge"
     )
     INDEX_DIR = Path(
         r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\Storage"
@@ -423,13 +488,25 @@ if __name__ == "__main__":
 
     md_files = sorted(DATA_DIR.rglob("*.md"))
     print(f"📂 Папка: {DATA_DIR}")
-    print(f"   Найдено .md файлов: {len(md_files)}")
-    for f in md_files:
-        print(f"   • {f.relative_to(DATA_DIR)}")
+    print(f"   .md файлов: {len(md_files)}")
 
     if not md_files:
         print("❌ В папке нет .md файлов.")
         sys.exit(1)
+
+    # ---------- 1.5. Диагностика: есть ли «АСКУЭ» в базе ----------
+    print("\n🔎 Проверка термина «АСКУЭ» в базе знаний:")
+    hits_askue = 0
+    for f in md_files:
+        n = f.read_text(encoding="utf-8").lower().count("аскуэ")
+        if n:
+            hits_askue += n
+            print(f"   • {f.name}: {n} вхождений")
+    if hits_askue == 0:
+        print("   ⚠️ Термина «АСКУЭ» в базе нет — retrieval его не найдёт.")
+        print("   ⚠️ Стоит ожидать семантический поиск через «облачная платформа учёта».")
+    else:
+        print(f"   ✅ Всего вхождений: {hits_askue}")
 
     # ---------- 2. Embedder ----------
     print("\n🔧 Загрузка EmbeddingWrapper...")
@@ -446,8 +523,6 @@ if __name__ == "__main__":
 
     # ---------- 3. Сборка индекса ----------
     print(f"\n🚀 Индексирование в {INDEX_DIR}")
-    print("   Это может занять несколько минут...")
-
     stats = pipeline_build_from_directory(
         raw_dir=DATA_DIR,
         index_dir=INDEX_DIR,
@@ -455,66 +530,115 @@ if __name__ == "__main__":
         pattern="**/*.md",
         save=True,
     )
-
-    print(f"\n✅ Готово: {stats.summary()}")
+    print(f"✅ {stats.summary()}")
     if stats.skipped:
-        print("\n⚠️ Пропущенные файлы:")
         for p, reason in stats.skipped:
-            print(f"   • {Path(p).name}: {reason}")
+            print(f"   ⚠️ {Path(p).name}: {reason}")
 
-    # ---------- 4. Проверка: загрузка с диска ----------
-    print("\n🔍 Проверка индекса...")
+    # ---------- 4. Загрузка ----------
+    print("\n🔍 Загрузка индекса с диска...")
     doc_store, vec_store = pipeline_load(INDEX_DIR, DATA_DIR)
-    n_docs     = len(list(doc_store.documents))
-    n_chunks   = len(doc_store)
-    n_leaves   = len(doc_store.leaf_chunks)
-    n_parents  = n_chunks - n_leaves
-    n_vectors  = len(vec_store)
+    n_docs = len(list(doc_store.documents))
+    n_chunks = len(doc_store)
+    n_leaves = len(doc_store.leaf_chunks)
+    n_vectors = len(vec_store)
     print(f"   Документов:       {n_docs}")
-    print(f"   Чанков всего:     {n_chunks}  "
-        f"(родителей: {n_parents}, листьев: {n_leaves})")
+    print(f"   Чанков:           {n_chunks} "
+          f"(родителей {n_chunks - n_leaves}, листьев {n_leaves})")
     print(f"   Векторов в FAISS: {n_vectors}")
     print(f"   next_chunk_id:    {doc_store.next_chunk_id}")
-
     assert n_vectors == n_leaves, (
-        f"❌ Рассинхронизация: {n_vectors} векторов vs {n_leaves} листьев. "
-        f"Возможно, chunks.json сохранён со старой версией chunker "
-        f"(без is_leaf). Пересоберите индекс."
+        f"❌ Рассинхронизация: {n_vectors} векторов vs {n_leaves} листьев"
     )
-    print("   ✅ Векторы соответствуют листьям (Small-to-Big)")
+    print("   ✅ Векторы ↔ листья синхронизированы")
 
-    # ---------- 5. Тестовый поиск ----------
-    test_query = "Что такое АСКУЭ и как подключить счётчики?"
-    print(f"\n🧪 Тестовый запрос: {test_query!r}")
+    # ---------- 5. Локальный реранкер ----------
+    print("\n🎯 Загрузка LocalReranker...")
+    reranker = None
+    try:
+        from .Ranking import LocalReranker  # noqa: E402
+        t0 = time.perf_counter()
+        reranker = LocalReranker(device="cpu")
+        print(f"   ✅ Загружен за {time.perf_counter() - t0:.1f}s")
+    except Exception as e:
+        print(f"   ⚠️ Не удалось загрузить реранкер: {e}")
+        print("   ⚠️ Дальше — режим без реранкера.")
 
-    q_emb = embedder._get_query_embedding(test_query)
-    hits = pipeline_search(
-        doc_store, vec_store, q_emb,
-        top_k=10,
-        min_score=0.0,  # отключаем порог — хотим видеть все совпадения
-    )
+    # ---------- 6. Тестовые запросы ----------
+    # Сначала «проблемный» АСКУЭ, потом реальные из demo_questions.csv
+    test_queries = [
+        "Что такое АСКУЭ и как подключить счётчики?",
+        "У нас несколько магазинов. Можно смотреть их расход в одном кабинете?",
+        "В счётчиках стоят симки другого оператора. Для вашей платформы их надо менять?",
+        "Хочу видеть расход электричества отдельно по цехам.",
+    ]
 
-    if not hits:
-        print("   ⚠️ Поиск ничего не вернул (пустой индекс?)")
-    else:
+    def _print_hits(title: str, hits: List[RetrievedChunk]) -> None:
+        print(f"\n   {title}:")
+        if not hits:
+            print("      ⚠️ пусто")
+            return
         for i, h in enumerate(hits, 1):
             section = h.chunk.section_title or "—"
-            preview = h.chunk.text[:120].replace("\n", " ").strip()
-            print(f"\n   {i}. [{h.score:.3f}] {h.chunk.document_id} / {section}")
-            print(f"      {preview}...")
+            preview = h.chunk.text[:100].replace("\n", " ").strip()
+            tag = "rerank" if h.reranked else "cos"
+            print(f"      {i}. [{tag:6s} {h.score:+.3f}] "
+                  f"{h.chunk.document_id} / {section}")
+            print(f"         {preview}...")
 
-    # ---------- 6. Small-to-Big ----------
-    print("\n🔗 Small-to-Big (PARENT):")
+    for q in test_queries:
+        print("\n" + "=" * 70)
+        print(f"❓ {q}")
+        q_emb = embedder._get_query_embedding(q)
+
+        # Без реранкера: FAISS top-5
+        t0 = time.perf_counter()
+        base_hits = pipeline_search(
+            doc_store, vec_store, q_emb,
+            top_k=5, min_score=0.0,
+        )
+        dt = (time.perf_counter() - t0) * 1000
+        _print_hits(f"FAISS top-5 ({dt:.0f} ms)", base_hits)
+
+        # С реранкером
+        if reranker is not None:
+            t0 = time.perf_counter()
+            rer_hits = pipeline_search(
+                doc_store, vec_store, q_emb,
+                top_k=5, min_score=0.0,
+                reranker=reranker,
+                query_text=q,
+                rerank_oversample=5,  # FAISS вернёт 25, реранкер сузит до 5
+            )
+            dt = (time.perf_counter() - t0) * 1000
+            _print_hits(f"Reranker top-5 ({dt:.0f} ms)", rer_hits)
+
+            # Показать, куда переехал топ-1 из FAISS
+            if base_hits and rer_hits:
+                faiss_top = base_hits[0].chunk.chunk_id
+                positions = [i for i, h in enumerate(rer_hits, 1)
+                             if h.chunk.chunk_id == faiss_top]
+                pos = positions[0] if positions else "вне топ-5"
+                print(f"\n   ℹ️ FAISS-топ1 (id={faiss_top}) "
+                      f"после реранкера: {pos}")
+
+    # ---------- 7. Small-to-Big (пример с parent) ----------
+    print("\n" + "=" * 70)
+    print("🔗 Small-to-Big (PARENT) — на запросе про АСКУЭ:")
+    q = "Что такое АСКУЭ и как подключить счётчики?"
+    q_emb = embedder._get_query_embedding(q)
     ctxs = pipeline_search_with_context(
         doc_store, vec_store, q_emb,
-        mode=ContextMode.PARENT, top_k=2,
+        mode=ContextMode.PARENT, top_k=3,
+        reranker=reranker, query_text=q,
     )
     for i, ctx in enumerate(ctxs, 1):
         has_parent = "да" if ctx.parent is not None else "нет"
         print(
-            f"   {i}. chunk_id={ctx.chunk.chunk_id}, "
+            f"   {i}. chunk_id={ctx.chunk.chunk_id} "
+            f"({ctx.chunk.document_id}/{ctx.chunk.section_title or '—'}), "
             f"parent={has_parent}, "
             f"context_len={len(ctx.context_text)}"
         )
 
-    print("\n🎉 Всё готово.")
+    print("\n🎉 Готово.")

@@ -135,12 +135,11 @@ class Document:
             extra=dict(raw.get("extra") or {}),
         )
 
-
 @dataclass(frozen=True)
 class Chunk:
     chunk_id: int
     document_id: str
-    text: str
+    text: str                              
     position: int
     section_title: Optional[str] = None
     parent_chunk_id: Optional[int] = None
@@ -148,6 +147,7 @@ class Chunk:
     char_start: Optional[int] = None
     char_end: Optional[int] = None
     is_leaf: bool = False
+    embedding_text: Optional[str] = None 
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Chunk":
@@ -161,7 +161,8 @@ class Chunk:
             page=raw.get("page"),
             char_start=raw.get("char_start"),
             char_end=raw.get("char_end"),
-            is_leaf=raw.get("is_leaf", False), 
+            is_leaf=raw.get("is_leaf", False),
+            embedding_text=raw.get("embedding_text"),  
         )
 
 
