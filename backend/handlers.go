@@ -61,6 +61,7 @@ func UserMessageHandler(ctx *gin.Context) {
 	if err != nil {
 		log.Printf("Неудалось получить ответ от ИИ | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ", "details" : err.Error()})
+		return
 	}
 	LogStruct("Ответ ИИ", ai_response)
 	// тут необходимо записать в БД и отправка в Python а также получение ответа, но пока хз каков там формат, потому то что в примере != итог так что пока 200 ответ
@@ -76,10 +77,13 @@ func ChatHistoryHandler(ctx *gin.Context){
 	var respons UserHistoryForm
 	history, err := GetAllFromDB[FrontHistoryMessageForm](session_id, &Messages{})
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error" : err.Error()})
+		log.Printf("Неудалось корректно найти историю в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error" : "Ошибка при поиске в БД", "details": err.Error()})
+		return
 	}
 	respons.SessionId = session_id
 	respons.History = history
+	LogStruct("История сессии для отрисовки", respons)
 	ctx.JSON(http.StatusOK, respons)
 
 }
