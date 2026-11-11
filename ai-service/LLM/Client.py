@@ -208,57 +208,237 @@ class LLMClient:
             output_tokens=getattr(usage, "completion_tokens", 0),
             total_tokens=getattr(usage, "total_tokens", 0),
         )
-    
-if __name__ == "__main__":
-    from .auth import GigaChatTokenProvider
-    import os
-    from dotenv import load_dotenv
-    from .structs import Role, LLMMessage
 
-    
-    if os.path.exists(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env"):
-        load_dotenv(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env")
-        
-    DEFAULT_AUTH_KEY = os.getenv("AI_AUTH_KEY")
-    DEFAULT_BASE_URL = os.getenv("AI_BASE_URL", "https://api.giga.chat/v1")
-    DEFAULT_SCOPE = DEFAULT_SCOPE = os.getenv("AI_SCOPE", "GIGACHAT_API_PERS")
-    DEFAULT_MODEL = os.getenv("AI_MODEL", "GigaChat-2")
-    
-    provider = GigaChatTokenProvider(
-        auth_key=DEFAULT_AUTH_KEY, 
-        scope=DEFAULT_SCOPE,
-        verify_ssl=False
-    )
-    client = LLMClient(
-        base_url=DEFAULT_BASE_URL,
-        token_provider=provider,
-        default_model=DEFAULT_MODEL
-    )
-    
-    request1 = ChatRequest(
-        messages=[
-            LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
-            LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
-        ],
-        temperature=0.3
-    )
-    response1 = client.chat(request=request1)
-    
+if __name__ == "__main__":
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    from .exceptions import LLMError, LLMResponseParseError
+    from .structs import LLMMessage, Role
+
+    # ✅ Ключевое: патчим OpenAI в ТОМ модуле, где сейчас исполняемся.
+    _OPENAI_PATH = f"{__name__}.OpenAI"
+
+    passed, failed = 0, 0
+
+    def run(name, fn):
+        global passed, failed
+        try:
+            fn()
+            print(f"  ✅ {name}")
+            passed += 1
+        except Exception as e:
+            print(f"  ❌ {name}: {type(e).__name__}: {e}")
+            failed += 1
+
+    class MockTokenProvider:
+        def get_token(self) -> str:
+            return "test-token"
+        def invalidate(self) -> None:
+            pass
+
+    def make_mock_response(text: str, model: str = "test-model"):
+        resp = MagicMock()
+        resp.choices = [MagicMock()]
+        resp.choices[0].message.content = text
+        resp.choices[0].finish_reason = "stop"
+        resp.model = model
+        resp.usage = None
+        return resp
+
+    def make_auth_error():
+        return openai.AuthenticationError(
+            message="Unauthorized",
+            response=httpx.Response(401, request=httpx.Request("POST", "http://x")),
+            body={"status": 401, "message": "Unauthorized"},
+        )
+
     class AnswerSchema(BaseModel):
         answer: str
         confidence: float
+
+    def _patched_client(**kwargs):
+        return LLMClient(
+            base_url="http://test",
+            api_key="test",
+            default_model="test-model",
+            verify_ssl=False,
+            **kwargs,
+        )
+
+    def test_basic_chat():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.return_value = make_mock_response("Привет")
+
+            resp = _patched_client().chat(ChatRequest(messages=[
+                LLMMessage(role=Role.SYSTEM, content="Ты — ассистент."),
+                LLMMessage(role=Role.USER, content="Привет"),
+            ]))
+
+            assert resp.text == "Привет"
+            assert resp.model == "test-model"
+            msgs = mock_openai.chat.completions.create.call_args.kwargs["messages"]
+            assert msgs[0]["role"] == "system"
+            assert msgs[-1]["role"] == "user"
+
+    def test_structured_output():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.return_value = make_mock_response(
+                '{"answer": "тест", "confidence": 0.9}'
+            )
+            resp = _patched_client().chat(ChatRequest(
+                messages=[LLMMessage(role=Role.USER, content="...")],
+                response_format=AnswerSchema,
+            ))
+            assert resp.parsed.answer == "тест"
+            assert abs(resp.parsed.confidence - 0.9) < 1e-6
+
+    def test_parse_markdown_fence():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.return_value = make_mock_response(
+                '```json\n{"answer": "ok", "confidence": 0.5}\n```'
+            )
+            resp = _patched_client().chat(ChatRequest(
+                messages=[LLMMessage(role=Role.USER, content="...")],
+                response_format=AnswerSchema,
+            ))
+            assert resp.parsed.answer == "ok"
+
+    def test_parse_schema_echo():
+        schema_echo = json.dumps({
+            "type": "object",
+            "properties": {"answer": "42", "confidence": 1},
+            "required": ["answer", "confidence"],
+            "title": "AnswerSchema",
+        })
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.return_value = make_mock_response(schema_echo)
+            resp = _patched_client().chat(ChatRequest(
+                messages=[LLMMessage(role=Role.USER, content="...")],
+                response_format=AnswerSchema,
+            ))
+            assert resp.parsed.answer == "42"
+
+    def test_empty_response_raises():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.return_value = make_mock_response("")
+            try:
+                _patched_client().chat(ChatRequest(
+                    messages=[LLMMessage(role=Role.USER, content="...")],
+                ))
+            except LLMResponseParseError:
+                return
+            raise AssertionError("Ожидался LLMResponseParseError")
+
+    def test_401_retry_once_with_provider():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.side_effect = [
+                make_auth_error(),
+                make_mock_response("Успех после retry"),
+            ]
+            resp = LLMClient(
+                base_url="http://test",
+                token_provider=MockTokenProvider(),
+                default_model="test-model",
+                verify_ssl=False,
+            ).chat(ChatRequest(messages=[
+                LLMMessage(role=Role.USER, content="..."),
+            ]))
+            assert resp.text == "Успех после retry"
+            assert mock_openai.chat.completions.create.call_count == 2
+
+    def test_401_no_retry_without_provider():
+        with patch(_OPENAI_PATH) as MockOpenAI:
+            mock_openai = MagicMock()
+            MockOpenAI.return_value = mock_openai
+            mock_openai.chat.completions.create.side_effect = make_auth_error()
+            try:
+                _patched_client().chat(ChatRequest(messages=[
+                    LLMMessage(role=Role.USER, content="..."),
+                ]))
+            except LLMError:
+                assert mock_openai.chat.completions.create.call_count == 1
+                return
+            raise AssertionError("Ожидался LLMError")
+
+    print("LLMClient unit tests (mocked, no network)")
+    print("-" * 50)
+    run("basic chat + order",              test_basic_chat)
+    run("structured output",               test_structured_output)
+    run("markdown fence stripping",        test_parse_markdown_fence)
+    run("schema echo defense (GigaChat)",  test_parse_schema_echo)
+    run("empty response raises",           test_empty_response_raises)
+    run("401 retry once (with provider)",  test_401_retry_once_with_provider)
+    run("401 no retry (api_key only)",     test_401_no_retry_without_provider)
+    print("-" * 50)
+    print(f"Итого: {passed} passed, {failed} failed")
+
+    if failed:
+        sys.exit(1)
         
-    request2 = ChatRequest(
-        messages=[
-            LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
-            LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
-        ],
-        temperature=0.1,
-        response_format=AnswerSchema
         
-    )
+# if __name__ == "__main__":
+#     from .auth import GigaChatTokenProvider
+#     import os
+#     from dotenv import load_dotenv
+#     from .structs import Role, LLMMessage
+
     
-    response2 = client.chat(request=request2)
+#     if os.path.exists(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env"):
+#         load_dotenv(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env")
+        
+#     DEFAULT_AUTH_KEY = os.getenv("AI_AUTH_KEY")
+#     DEFAULT_BASE_URL = os.getenv("AI_BASE_URL", "https://api.giga.chat/v1")
+#     DEFAULT_SCOPE = DEFAULT_SCOPE = os.getenv("AI_SCOPE", "GIGACHAT_API_PERS")
+#     DEFAULT_MODEL = os.getenv("AI_MODEL", "GigaChat-2")
     
-    print(response1.text)
-    print(response2.parsed)
+#     provider = GigaChatTokenProvider(
+#         auth_key=DEFAULT_AUTH_KEY, 
+#         scope=DEFAULT_SCOPE,
+#         verify_ssl=False
+#     )
+#     client = LLMClient(
+#         base_url=DEFAULT_BASE_URL,
+#         token_provider=provider,
+#         default_model=DEFAULT_MODEL
+#     )
+    
+#     request1 = ChatRequest(
+#         messages=[
+#             LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
+#             LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
+#         ],
+#         temperature=0.3
+#     )
+#     response1 = client.chat(request=request1)
+    
+#     class AnswerSchema(BaseModel):
+#         answer: str
+#         confidence: float
+        
+#     request2 = ChatRequest(
+#         messages=[
+#             LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
+#             LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
+#         ],
+#         temperature=0.1,
+#         response_format=AnswerSchema
+        
+#     )
+    
+#     response2 = client.chat(request=request2)
+    
+#     print(response1.text)
+#     print(response2.parsed)
