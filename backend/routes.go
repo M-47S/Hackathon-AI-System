@@ -5,30 +5,14 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
-var CookieName = "guest_id"
-//Создаем Cookie при первом обращении 
-func CreateCookieMiddleWare() gin.HandlerFunc {
-	return func(ctx *gin.Context){
-		//Пытаемся найти Cookie если ее нет то создаем на неделю
-		id, err := ctx.Cookie(CookieName)
-		if (err != nil || id == "") {
-			id = uuid.NewString();
-			ctx.SetCookie(CookieName, id, 3600 * 24 * 7, "/", "", false, false)
-		}
-		//Записать в БД Cookie
-		
 
-		//Записываем в словарик контекса
-		ctx.Set("guest_id", id)
-		ctx.Next()
-	}
-}
+
 //Проверяем есть ли Cookie для необходимых эндпоинтов
 func ReadCookieMiddleWare() gin.HandlerFunc {
 	return func(ctx *gin.Context){
+		//Дописать логику првоерки Cookie (Поиск пользователя в БД по куки)
 		id, err := ctx.Cookie(CookieName)
 		if (err != nil || id == ""){
 			ctx.JSON(401, FillErrorForm("User Anauthorized (No Cookie)", 401, err))
@@ -59,13 +43,11 @@ func SetupRoutes() *gin.Engine {
 	{
 		// Публичные маршруты
 		api.GET("/hello", Hello)
-
-		//Маршрут с созданием Cookie
-		api.POST("/sessions", CreateCookieMiddleWare(), CreateSessionHandler)
-
+		api.POST("/register", RegisterCustomer)
 		// Группа с проверка на наличие Cookie
 		cookieGroup := api.Group("", ReadCookieMiddleWare())
 		{
+			api.POST("/sessions", CreateSessionHandler)
 			cookieGroup.GET("/sessions/:session_id/messages", ChatHistoryHandler)
 			cookieGroup.POST("/chat", UserMessageHandler)
 			cookieGroup.POST("/leads", ManagerStatmentHandler)

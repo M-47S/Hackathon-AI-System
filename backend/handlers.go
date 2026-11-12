@@ -4,10 +4,15 @@ import (
 	"log"
 	"net/http"
 	"time"
-
+	"os"
+	"strconv"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
+
+var CookieName = "cookie_id"
+
 
 func Hello(ctx *gin.Context){
 	wr := ctx.Writer
@@ -109,4 +114,58 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	lead_form.Status = "new"
 	lead_form.LeadId = uuid.NewString()
 	ctx.JSON(http.StatusCreated, lead_form)
+}
+
+// /api/register
+func RegisterCustomer(ctx *gin.Context){
+	var cust_data CustomerData
+	if err := ctx.ShouldBindJSON(&cust_data); err != nil {
+		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
+		return
+	}
+	salt_size, _ := strconv.Atoi(os.Getenv("SALT_SIZE"))
+	bytes, err := bcrypt.GenerateFromPassword([]byte(cust_data.Password), salt_size)
+	if err != nil {
+		log.Printf("Неудалось захэшировать пароль | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Invalid password hashing", http.StatusInternalServerError, err))
+		return
+	}
+	customer_id := uuid.NewString()
+
+	maxAge := 3600 * 24 * 7
+	expires_at := time.Now().Add(time.Duration(maxAge) * time.Second)
+	cookie_id := uuid.NewString();
+	
+	
+	newCustomer := Customers{
+		CustomerId: customer_id,
+		Login:      cust_data.Login,
+		Password:   string(bytes),
+		IsAdmin:    cust_data.IsAdmin,
+		Cookies: []Cookies{
+			{
+				CookieId: cookie_id,
+				CustomerId: customer_id,
+				ExpiresAt: expires_at,
+			},
+		},
+	}
+	if err := globalDBCon.Create(newCustomer).Error; err != nil {
+		log.Printf("Неудалось создать запись о Пользователе в БД | err: %s", err.Error())
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}	
+	ctx.SetCookie(CookieName, cookie_id, 3600 * 24 * 7, "/", "", false, false)
+	ctx.Set(CookieName, cookie_id)   
+	var response = RegisterResponse {
+		Login: cust_data.Login,
+		IsAdmin: cust_data.IsAdmin,
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+// /api/login
+func LoginCustomer(ctx *gin.Context){
+	
 }

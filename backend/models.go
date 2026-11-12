@@ -16,6 +16,7 @@ type SessionForm struct{
 }
 
 
+
 // Структура для принятия запроса с Frontend /api/chat
 type UserRequest struct{
 	SessionId string `json:"session_id"`
@@ -90,4 +91,15 @@ type LeadForm struct {
 	LeadId string `json:"lead_id"`
 	Status string `json:"status"`
 	CreatedAt string `json:"created_at"`
+}
+
+type CustomerData struct {
+	Login string `json:"login"`
+	Password string `json:"password"`
+	IsAdmin bool `json:"is_admin"`
+}
+
+type RegisterResponse struct {
+	Login string `json:"login"`
+	IsAdmin bool `json:"is_admin"`
 }
