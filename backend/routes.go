@@ -18,6 +18,8 @@ func CreateCookieMiddleWare() gin.HandlerFunc {
 			id = uuid.NewString();
 			ctx.SetCookie(CookieName, id, 3600 * 24 * 7, "/", "", false, false)
 		}
+		//Записать в БД Cookie
+		
 
 		//Записываем в словарик контекса
 		ctx.Set("guest_id", id)
@@ -51,15 +53,23 @@ func SetupRoutes() *gin.Engine {
 		MaxAge: 12 * time.Hour,
 	}
 	r.Use(cors.New(config))
-	// позже настрою Cookie 
-	r.GET("api/hello", Hello)
 
-	initGroup := r.Group("")
-	r.POST("api/sessions", CreateSessionHandler)
 
-	r.GET("api/sessions/:session_id/messages")
-	
-	r.POST("api/chat", UserMessageHandler)
-	r.POST("api/leads", ManagerStatmentHandler)
+	api := r.Group("/api")
+	{
+		// Публичные маршруты
+		api.GET("/hello", Hello)
+
+		//Маршрут с созданием Cookie
+		api.POST("/sessions", CreateCookieMiddleWare(), CreateSessionHandler)
+
+		// Группа с проверка на наличие Cookie
+		cookieGroup := api.Group("", ReadCookieMiddleWare())
+		{
+			cookieGroup.GET("/sessions/:session_id/messages", ChatHistoryHandler)
+			cookieGroup.POST("/chat", UserMessageHandler)
+			cookieGroup.POST("/leads", ManagerStatmentHandler)
+		}
+	}
 	return r
 }
