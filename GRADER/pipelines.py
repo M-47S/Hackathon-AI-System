@@ -133,10 +133,10 @@ def pipeline_search(
     top_k: int = 5,
     min_score: Optional[float] = None,
     chunk_filter: Optional[Callable[[Chunk], bool]] = None,
-    oversample: int = 5,
+    oversample: int = 3,
     reranker: Optional[RerankerLike] = None,
     query_text: Optional[str] = None,
-    rerank_oversample: int = 5,
+    rerank_oversample: int = 3,
     max_per_document: Optional[int] = None,
     filter_toc: bool = True,
     exclude_documents: Optional[set] = None,
@@ -217,22 +217,29 @@ def pipeline_search(
 
     # 6. Reranker
     if use_reranker:
-        reranked = reranker.rerank(
-            query=query_text,
-            documents=[c.text for c in ordered_chunks],
-            top_n=top_k,
-        )
-        return [
-            RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
-            for idx, score in reranked
-        ]
+        reranked = []
+        try:
+            reranked = reranker.rerank(
+                query=query_text,
+                documents=[c.text for c in ordered_chunks],
+                top_n=top_k,
+            )
+        except Exception as e:
+            logger.warning("Reranker упал (%s), fallback на FAISS scores", e)
 
-    # 7. Fallback: score по chunk_id
-    hit_score = {h.chunk_id: h.score for h in hits}
-    return [
-        RetrievedChunk(chunk=c, score=hit_score[c.chunk_id], reranked=False)
-        for c in ordered_chunks[:top_k]
-    ]
+        if reranked:
+            return [
+                RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
+                for idx, score in reranked
+                if 0 <= idx < len(ordered_chunks)
+            ]
+
+        # FALLBACK: FAISS scores
+        hit_score = {h.chunk_id: h.score for h in hits}
+        return [
+            RetrievedChunk(chunk=c, score=hit_score[c.chunk_id], reranked=False)
+            for c in ordered_chunks[:top_k]
+        ]
 
 
 def pipeline_search_with_context(
@@ -576,11 +583,13 @@ def _diversify_by_document(
     return primary
 
 
-def _is_toc_like(chunk: Chunk, threshold: float = 0.5) -> bool:
-    """True, если чанк — в основном markdown-ссылки (оглавление)."""
+def _is_toc_like(chunk: Chunk, threshold: float = 0.65) -> bool: 
     text = chunk.text
     if not text:
         return True
+    # Дополнительно: короткие чанки (<150 символов) не считаем TOC
+    if len(text) < 150:
+        return False
     link_chars = sum(len(m.group(0)) for m in _LINK_RE.finditer(text))
     return link_chars / len(text) > threshold
 

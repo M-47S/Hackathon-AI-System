@@ -151,22 +151,14 @@ def _extract_document_title(markdown_text: str) -> str:
     return ""
 
 
-def _make_embedding_text(
-    doc_title: str,
-    section_title: Optional[str],
-    text: str,
-) -> str:
-    """
-    Контекстный префикс для эмбеддинга (Contextual Retrieval).
-    Формат: '<Документ> — <Раздел>:\n<текст>'
-    """
-    parts: List[str] = []
-    if doc_title:
-        parts.append(doc_title)
-    if section_title:
-        parts.append(section_title)
+def _make_embedding_text(doc_title, section_title, text, doc_filename=""):
+    parts = []
+    if doc_title: parts.append(doc_title)
+    if section_title: parts.append(section_title)
+    if doc_filename: parts.append(doc_filename)   # NEW
     header = " — ".join(parts)
     return f"{header}:\n{text}" if header else text
+        
 
 
 # ---------------------------------------------------------------------------
@@ -187,12 +179,13 @@ class MarkdownChunker:
     с приблизительным пересчётом 1 токен ≈ 4 символа (для русского).
     """
 
+    # В MarkdownChunker.__init__:
     def __init__(
         self,
-        chunk_size: int = 384,      # токенов, ≈1500 символов
-        chunk_overlap: int = 30,    # токенов, ≈120 символов
+        chunk_size: int = 640,      # токенов, ≈2560 символов (было 384)
+        chunk_overlap: int = 64,    # токенов, ≈256 символов (было 30)
     ):
-        self._max_chars = max(200, chunk_size * 4)
+        self._max_chars = max(400, chunk_size * 4)
         self._overlap_chars = max(0, chunk_overlap * 4)
 
     def chunk(
@@ -280,6 +273,7 @@ class MarkdownChunker:
                         doc_title=doc_title,
                         section_title=section_title,
                         text=leaf_text,
+                        doc_filename=document_id,  # используем как fallback, если path недоступен
                     ),
                 ))
 

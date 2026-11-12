@@ -1,3 +1,4 @@
+# GRADER/llm_client.py
 import json
 import logging
 from typing import Any, Optional, Type, TypeVar
@@ -8,17 +9,11 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from structs import (
-    LLMError,
-    LLMRateLimitError,
-    LLMResponseParseError,
-    LLMTimeoutError,
-    ChatRequest,
-    LLMResponse,
-    LLMUsage,
+    LLMError, LLMRateLimitError, LLMResponseParseError, LLMTimeoutError,
+    ChatRequest, LLMResponse, LLMUsage,
 )
 
 logger = logging.getLogger(__name__)
-
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -27,29 +22,39 @@ class LLMClient:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        default_model: str = "gpt-4o-mini",
+        default_model: str = "qwen/qwen3.8-27b",
         timeout: float = 60.0,
         max_retries: int = 2,
     ):
         self._base_url = base_url
         self._api_key = api_key
         self._default_model = default_model
-        self._max_retries = max_retries
         self._timeout = timeout
+        self._max_retries = max_retries
 
-    def chat(self, request: ChatRequest) -> LLMResponse:
-        if not self._api_key:
-            raise LLMError("Не передан api_key")
+        if not api_key:
+            raise LLMError("LLMClient: не передан api_key")
 
-        # Создаем клиент (на платформе можно переиспользовать, но для 100 вопросов это ок)
-        client = OpenAI(
-            base_url=self._base_url,
-            api_key=self._api_key,
-            timeout=self._timeout,
-            max_retries=self._max_retries,
-            http_client=httpx.Client(verify=False, timeout=self._timeout)
+        # ОДИН httpx.Client с нормальным пулом соединений
+        self._http = httpx.Client(
+            timeout=httpx.Timeout(timeout),
+            verify=False,
+            limits=httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=60,
+                keepalive_expiry=60.0,
+            ),
+        )
+        # ОДИН OpenAI клиент — переиспользуем его всё время
+        self._client = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            http_client=self._http,
         )
 
+    def chat(self, request: ChatRequest) -> LLMResponse:
         model = request.model or self._default_model
 
         messages = [
@@ -59,21 +64,14 @@ class LLMClient:
         if request.instructions and not any(m["role"] == "system" for m in messages):
             messages.insert(0, {"role": "system", "content": request.instructions})
 
-        # ---- Structured output ----
         want_json = request.response_format is not None
         if want_json:
             schema_json = json.dumps(
-                request.response_format.model_json_schema(),
-                ensure_ascii=False,
+                request.response_format.model_json_schema(), ensure_ascii=False,
             )
             schema_hint = (
                 "Ответь ОДНИМ валидным JSON-объектом с реальными данными. "
                 "Без markdown-обёрток и пояснений. "
-                "Структура полей должна соответствовать схеме ниже, "
-                "но заполняй её фактическими значениями. "
-                "НЕ повторяй саму схему, НЕ добавляй служебные поля "
-                "'properties', 'required', 'type', 'title', '$defs'. "
-                "В ответе должны быть только ключи из схемы с их значениями. "
                 f"Схема: {schema_json}"
             )
             if messages and messages[0]["role"] == "system":
@@ -93,11 +91,11 @@ class LLMClient:
 
         try:
             try:
-                response = client.chat.completions.create(**kwargs)
+                response = self._client.chat.completions.create(**kwargs)
             except openai.BadRequestError:
                 if want_json:
                     kwargs.pop("response_format", None)
-                    response = client.chat.completions.create(**kwargs)
+                    response = self._client.chat.completions.create(**kwargs)
                 else:
                     raise
 
@@ -113,10 +111,7 @@ class LLMClient:
         except openai.APITimeoutError as e:
             raise LLMTimeoutError(str(e)) from e
         except openai.APIError as e:
-            status_code = getattr(e, "status_code", "unknown")
-            body = getattr(e, "body", "unknown")
-            logger.error(f"APIError {status_code}: {body}")
-            raise LLMError(f"APIError {status_code}: {body}") from e
+            raise LLMError(f"APIError: {getattr(e, 'status_code', '?')}") from e
         except Exception as e:
             if isinstance(e, LLMError):
                 raise
@@ -134,6 +129,16 @@ class LLMClient:
             parsed=parsed,
         )
 
+    def close(self) -> None:
+        try:
+            self._http.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
+
+    # _parse_structured и _extract_usage_chat — без изменений
     @staticmethod
     def _parse_structured(text: str, model_cls: Type[T]) -> T:
         cleaned = text.strip()
@@ -142,36 +147,26 @@ class LLMClient:
             if cleaned.lower().startswith("json"):
                 cleaned = cleaned[4:]
             cleaned = cleaned.strip("`\n ")
-
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError as e:
-            raise LLMResponseParseError(
-                f"Ответ не является валидным JSON: {e}\nСырой ответ: {text[:500]}"
-            ) from e
-
-        if (
-            isinstance(data, dict)
-            and data.get("type") == "object"
-            and isinstance(data.get("properties"), dict)
-            and "properties" not in model_cls.model_fields
-        ):
+            raise LLMResponseParseError(f"Не JSON: {e}") from e
+        if (isinstance(data, dict) and data.get("type") == "object"
+                and isinstance(data.get("properties"), dict)
+                and "properties" not in model_cls.model_fields):
             data = data["properties"]
-
         try:
             return model_cls.model_validate(data)
         except Exception as e:
-            raise LLMResponseParseError(
-                f"Не удалось распарсить structured output: {e}\nСырой ответ: {text[:500]}"
-            ) from e
+            raise LLMResponseParseError(f"Не прошло валидацию: {e}") from e
 
     @staticmethod
     def _extract_usage_chat(response: Any) -> Optional[LLMUsage]:
-        usage = getattr(response, "usage", None)
-        if usage is None:
+        u = getattr(response, "usage", None)
+        if u is None:
             return None
         return LLMUsage(
-            input_tokens=getattr(usage, "prompt_tokens", 0),
-            output_tokens=getattr(usage, "completion_tokens", 0),
-            total_tokens=getattr(usage, "total_tokens", 0),
+            input_tokens=getattr(u, "prompt_tokens", 0),
+            output_tokens=getattr(u, "completion_tokens", 0),
+            total_tokens=getattr(u, "total_tokens", 0),
         )
