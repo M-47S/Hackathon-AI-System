@@ -233,17 +233,36 @@ def pipeline_search(
         min_required=0 if use_reranker else top_k,
     )
 
-    # 6. Reranker
+    # 6. Reranker (с защитой от сбоев)
     if use_reranker:
-        reranked = reranker.rerank(
-            query=query_text,
-            documents=[c.text for c in ordered_chunks],
-            top_n=top_k,
-        )
-        return [
-            RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
-            for idx, score in reranked
-        ]
+        try:
+            reranked = reranker.rerank(
+                query=query_text,
+                documents=[c.text for c in ordered_chunks],
+                top_n=top_k,
+            )
+            # Валидация: индексы в допустимом диапазоне
+            results = []
+            for idx, score in reranked:
+                if 0 <= idx < len(ordered_chunks):
+                    results.append(
+                        RetrievedChunk(
+                            chunk=ordered_chunks[idx],
+                            score=float(score),
+                            reranked=True,
+                        )
+                    )
+            if results:
+                return results[:top_k]
+            logger.warning(
+                "pipeline_search: reranker вернул пустой/невалидный результат, "
+                "fallback на FAISS"
+            )
+        except Exception as e:
+            logger.warning(
+                "pipeline_search: reranker упал (%s), fallback на FAISS",
+                e,
+            )
 
     # 7. Fallback
     hit_score = {h.chunk_id: h.score for h in hits}
