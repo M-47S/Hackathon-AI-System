@@ -25,10 +25,33 @@ class MarkdownChunker:
 
     def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
         self.md_parser = MarkdownNodeParser()
-        self.text_splitter = SentenceSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
+        self._chunk_size = chunk_size
+        self._chunk_overlap = chunk_overlap
+        self.text_splitter = self._build_splitter(chunk_size, chunk_overlap)
+
+    @staticmethod
+    def _build_splitter(chunk_size: int, chunk_overlap: int):
+        """
+        Пытается создать SentenceSplitter. Если tiktoken не может
+        инициализироваться (нет интернета / BPE не закэширован) —
+        возвращает None, и chunk() использует fallback (parent = leaf).
+        """
+        try:
+            # warm-up: проверим, что BPE доступен
+            import tiktoken
+            tiktoken.get_encoding("cl100k_base")
+            return SentenceSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+        except Exception as e:
+            logger.warning(
+                "SentenceSplitter недоступен (%s). "
+                "Fallback: каждый parent используется как один лист. "
+                "Retrieval будет работать, но потеряет гранулярность.",
+                e,
+            )
+            return None
 
     def chunk(
         self,
@@ -83,22 +106,40 @@ class MarkdownChunker:
                 parent_chunk_id=parent_chunk_id,
             ))
 
-        # Шаг 2. Режем каждого родителя на листья
+       # Шаг 2. Режем каждого родителя на листья
         leaf_chunks: list[Chunk] = []
 
         for parent in parent_nodes:
             parent_chunk_id = id_map[parent.node_id]
             parent_chunk = next(c for c in parent_chunks if c.chunk_id == parent_chunk_id)
 
+            # Fallback: если SentenceSplitter недоступен — parent сам лист.
+            if self.text_splitter is None:
+                chunk_id = next_id
+                next_id += 1
+                leaf_chunks.append(Chunk(
+                    chunk_id=chunk_id,
+                    document_id=document_id,
+                    text=parent_chunk.text,
+                    position=parent_chunk.position + 1,
+                    section_title=parent_chunk.section_title,
+                    parent_chunk_id=parent_chunk_id,
+                    is_leaf=True,
+                    embedding_text=_make_embedding_text(
+                        doc_title=doc_title,
+                        section_title=parent_chunk.section_title,
+                        text=parent_chunk.text,
+                    ),
+                ))
+                continue
+
             child_nodes = self.text_splitter.get_nodes_from_documents(
                 [LIDocument(text=parent.text)]
             )
-
             for i, child in enumerate(child_nodes):
                 chunk_id = next_id
                 next_id += 1
                 id_map[child.node_id] = chunk_id
-
                 leaf_chunks.append(Chunk(
                     chunk_id=chunk_id,
                     document_id=document_id,

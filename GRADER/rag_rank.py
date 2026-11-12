@@ -8,6 +8,7 @@ class QwenReranker:
             base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=30.0,
+            verify=False,
         )
         self._model = model
 
