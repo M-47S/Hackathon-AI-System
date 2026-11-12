@@ -1,15 +1,24 @@
 # GRADER/solution.py
 """
-solution.py — точка входа для автоматической проверки хакатона Hack&Change 2026.
+solution.py — точка входа для автоматической проверки Hack&Change 2026.
+
+RAG-пайплайн на один вопрос:
+  1. extract_last_user_message → чистый текст запроса
+  2. expand_query (LLM)        → расшифровка аббревиатур
+  3. pipeline_search_with_context_by_text:
+       - эмбеддинг = instruction + expanded (Instruction Prefix)
+       - реранкер  = original (естественная формулировка)
+       - Small-to-Big: leaf → parent
+  4. LLM генерирует ответ по контексту
 """
 from __future__ import annotations
 
 import csv
 import logging
 import os
+import re
 import shutil
 import sys
-import re
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -34,6 +43,15 @@ MAX_WORKERS    = int(_env("MAX_WORKERS", default="4") or "4")
 TEMPERATURE    = float(_env("TEMPERATURE", default="0.3") or "0.3")
 DATA_DIR       = Path(_env("DATA_DIR", default="data"))
 
+INSTRUCTION_NAME = _env("QUERY_INSTRUCTION", default="detailed_ru")
+USE_EXPANSION    = (_env("USE_EXPANSION", default="true") or "true").lower() in ("1", "true", "yes")
+
+EXCLUDE_DOCS_RAW = _env("EXCLUDE_DOCUMENTS", default="20-portfolio")
+EXCLUDE_DOCUMENTS: set[str] = (
+    set() if EXCLUDE_DOCS_RAW.lower() in ("", "none")
+    else {s.strip() for s in EXCLUDE_DOCS_RAW.split(",") if s.strip()}
+)
+
 # ---------------- Logging ----------------
 logging.basicConfig(
     level=logging.INFO,
@@ -42,15 +60,20 @@ logging.basicConfig(
 )
 log = logging.getLogger("solution")
 
-# ---------------- Imports из модулей (в корне ZIP) ----------------
+# ---------------- Imports ----------------
 from llm_client import LLMClient
-from structs import Embedding, ContextMode, ChatRequest, LLMMessage, Role
+from structs import ContextMode, ChatRequest, LLMMessage, Role
 from document_store import DocumentStore
 from vector_store import VectorStore
 from chunker import MarkdownChunker
 from rag_embed import RemoteEmbedder
 from rag_rank import QwenReranker
-from pipelines import pipeline_fill_store, pipeline_search_with_context
+from pipelines import (
+    pipeline_fill_store,
+    pipeline_search_with_context_by_text,   # ← используем его
+    QUERY_INSTRUCTIONS,
+    DEFAULT_QUERY_INSTRUCTION,
+)
 
 
 # ---------------- SYSTEM PROMPT ----------------
@@ -146,6 +169,7 @@ def extract_last_user_message(question: str) -> str:
         last_user = current_user
     return last_user or question
 
+
 def prepare_knowledge_base(dst_dir: Path) -> list[Path]:
     dst_dir.mkdir(parents=True, exist_ok=True)
     zip_path = DATA_DIR / "knowledge-base.zip"
@@ -164,26 +188,15 @@ def prepare_knowledge_base(dst_dir: Path) -> list[Path]:
     log.info("Найдено .md файлов: %d", len(md_files))
     return md_files
 
+
 def read_questions(path: Path) -> list[dict]:
-    """
-    Читает questions.csv.
-
-    Устойчиво к:
-      - BOM в начале файла (utf-8-sig): символ \\ufeff в первой колонке
-      - пробелам/регистру в названиях колонок ('ID ', 'id', 'id')
-      - разделителю ',' или ';' (Sniffer)
-
-    Без этого fix упадёт KeyError: 'id' на demo_questions.csv, где
-    первая колонка называется '\\ufeffid'.
-    """
     with open(path, encoding="utf-8-sig", newline="") as f:
         sample = f.read(4096)
         f.seek(0)
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=",;")
         except csv.Error:
-            dialect = csv.excel  # fallback: обычный ','
-
+            dialect = csv.excel
         reader = csv.DictReader(f, dialect=dialect)
         rows: list[dict] = []
         for r in reader:
@@ -194,13 +207,12 @@ def read_questions(path: Path) -> list[dict]:
             qid = normalized.get("id", "")
             question = normalized.get("question", "")
             if not qid or not question:
-                # Мусорная строка — пропускаем, но логируем
                 log.warning("Пропущена строка без id/question: %r", r)
                 continue
             rows.append({"id": qid, "question": question})
-
-    log.info("Загружено вопросов: %d (с BOM-защитой)", len(rows))
+    log.info("Загружено вопросов: %d", len(rows))
     return rows
+
 
 def write_submission(path: Path, answers: list[dict]) -> None:
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -209,6 +221,7 @@ def write_submission(path: Path, answers: list[dict]) -> None:
         for row in answers:
             writer.writerow({"id": row["id"], "answer": row["answer"]})
     log.info("Записан %s, строк: %d", path, len(answers))
+
 
 def build_context_block(contexts) -> str:
     if not contexts:
@@ -221,37 +234,34 @@ def build_context_block(contexts) -> str:
         parts.append(f"\n[{i}] {doc} / {title}\n{text}")
     return "\n".join(parts)
 
+
 def fallback_answer() -> str:
     return (
         "Не удалось подготовить ответ по этому вопросу. "
         "Рекомендую связаться со специалистом МТС EnergyTool для консультации."
     )
 
+
 def _clean_expanded(text: str) -> str:
-    """Убирает типичные префиксы/кавычки из ответа LLM."""
     if not text:
         return ""
     s = text.strip()
-    # Убираем markdown-обёртки
     if s.startswith("```"):
         s = re.sub(r"^```[a-zA-Z]*\n?", "", s)
         s = re.sub(r"\n?```$", "", s)
-    # Убираем типичные префиксы
     s = re.sub(
         r"^(конечно[!,.\s]*|хорошо[!,.\s]*|вот\s+|"
         r"переписанный\s+запрос\s*[:：]\s*|"
         r"расширенный\s+запрос\s*[:：]\s*|"
         r"запрос\s*[:：]\s*)",
-        "",
-        s,
-        flags=re.IGNORECASE,
+        "", s, flags=re.IGNORECASE,
     )
-    # Убираем кавычки по краям
-    s = s.strip().strip('«»"\'""').strip()
-    return s
+    return s.strip().strip('«»"\'""').strip()
 
 
 def expand_query(llm: LLMClient, query: str) -> str:
+    if not USE_EXPANSION:
+        return query
     try:
         resp = llm.chat(ChatRequest(
             messages=[LLMMessage(role=Role.USER, content=EXPANSION_PROMPT.format(query=query))],
@@ -259,24 +269,31 @@ def expand_query(llm: LLMClient, query: str) -> str:
             max_output_tokens=150,
         ))
         expanded = _clean_expanded(resp.text or "")
-        # Санити-чек: если получилось короче 10 символов — вернуть оригинал
-        if len(expanded) < 10:
-            return query
-        return expanded
+        return expanded if len(expanded) >= 10 else query
     except Exception as e:
         log.warning("Query expansion failed for %r: %s", query, e)
         return query
 
-# ---------------- Main pipeline ----------------
+
+# ---------------- Main ----------------
 def main() -> None:
     t_start = time.time()
+
+    if INSTRUCTION_NAME in QUERY_INSTRUCTIONS:
+        query_instruction = QUERY_INSTRUCTIONS[INSTRUCTION_NAME]
+    else:
+        log.warning("Неизвестная инструкция %r, беру default", INSTRUCTION_NAME)
+        query_instruction = DEFAULT_QUERY_INSTRUCTION
+
     log.info("=" * 60)
-    log.info("START. LLM_MODEL=%s, EMB_MODEL=%s, TOP_K=%d, WORKERS=%d",
-             LLM_MODEL, EMB_MODEL, TOP_K, MAX_WORKERS)
+    log.info("START. LLM=%s, EMB=%s, RERANK=%s", LLM_MODEL, EMB_MODEL, RERANKER_MODEL)
+    log.info("   TOP_K=%d, WORKERS=%d", TOP_K, MAX_WORKERS)
+    log.info("   INSTRUCTION=%r, EXPANSION=%s, EXCLUDE=%s",
+             INSTRUCTION_NAME, USE_EXPANSION, EXCLUDE_DOCUMENTS or "—")
     log.info("=" * 60)
 
     if not LLM_BASE_URL or not LLM_API_KEY:
-        log.error("Не переданы LLM_BASE_URL / LLM_API_KEY, дальше работать нельзя.")
+        log.error("Не переданы LLM_BASE_URL / LLM_API_KEY")
         sys.exit(1)
 
     questions_path = DATA_DIR / "questions.csv"
@@ -290,15 +307,16 @@ def main() -> None:
 
     # --- Клиенты ---
     llm = LLMClient(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, default_model=LLM_MODEL)
-
     embedder = RemoteEmbedder(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, model=EMB_MODEL)
     probe_dim = embedder._get_text_embedding("probe").size
     log.info("Размерность эмбеддингов: %d", probe_dim)
 
     reranker = None
     try:
-        reranker = QwenReranker(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, model=RERANKER_MODEL)
-        log.info("QwenReranker инициализирован (модель %s)", RERANKER_MODEL)
+        reranker = QwenReranker(
+            base_url=LLM_BASE_URL, api_key=LLM_API_KEY, model=RERANKER_MODEL,
+        )
+        log.info("QwenReranker инициализирован (%s)", RERANKER_MODEL)
     except Exception as e:
         log.warning("Reranker не инициализирован (%s), работаем без него", e)
 
@@ -315,60 +333,56 @@ def main() -> None:
     )
     log.info("Индекс построен за %.1fs: %s", time.time() - t0, stats.summary())
 
-    # --- Query Expansion ---
-    log.info("Расширение запросов (Query Expansion)...")
-    queries_text = [extract_last_user_message(q["question"]) for q in questions]
-    
-    expanded_texts: list[str] = [""] * len(queries_text)
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        futures = {pool.submit(expand_query, llm, q): i for i, q in enumerate(queries_text)}
-        for fut in as_completed(futures):
-            i = futures[fut]
-            expanded_texts[i] = fut.result()
-    
-    # --- Эмбеддинги вопросов ---
-    log.info("Эмбеддинг расширенных запросов...")
-    q_embeddings = embedder._get_text_embedding_batch(expanded_texts)
-
-    # --- Генерация ответов ---
-    log.info("Генерация ответов (workers=%d)...", MAX_WORKERS)
+    # --- Обработка вопросов ---
+    log.info("Обработка %d вопросов (workers=%d)...", len(questions), MAX_WORKERS)
 
     def process_one(i: int) -> tuple[int, str]:
         q = questions[i]
-        q_emb = q_embeddings[i]
-        query_text = queries_text[i]  # оригинальный запрос (для реранкера)
-        
+        original = extract_last_user_message(q["question"])
+
         try:
-            # Retrieval + reranking
-            contexts = pipeline_search_with_context(
-                doc_store=doc_store, vec_store=vec_store, query=q_emb,
-                mode=ContextMode.PARENT, top_k=TOP_K, min_score=None,
-                reranker=reranker, query_text=query_text, rerank_oversample=4,
+            # 1. Query Expansion (LLM) — «АСКУЭ» → «облачная платформа учёта»
+            expanded = expand_query(llm, original)
+
+            # 2. Retrieval + Small-to-Big через ОДНУ функцию:
+            #    - эмбеддинг: instruction + expanded
+            #    - реранкер:  original
+            contexts = pipeline_search_with_context_by_text(
+                embedder=embedder,
+                doc_store=doc_store,
+                vec_store=vec_store,
+                query_text=expanded,               # для эмбеддинга (с префиксом)
+                query_instruction=query_instruction,
+                rerank_query_text=original,        # для реранкера (чистый)
+                mode=ContextMode.PARENT,           # Small-to-Big
+                top_k=TOP_K,
+                reranker=reranker,
+                rerank_oversample=4,
+                filter_toc=True,
+                exclude_documents=EXCLUDE_DOCUMENTS or None,
             )
 
-            # Промпт
-            context_block = build_context_block(contexts)
+            # 3. Сборка промпта и вызов LLM
             user_msg = (
-                f"{context_block}\n\n"
+                f"{build_context_block(contexts)}\n\n"
                 f"Вопрос клиента:\n{q['question']}\n\n"
                 f"Дай ответ строго по контексту. Если в контексте нет нужной "
                 f"информации — скажи об этом и предложи связаться со специалистом. "
                 f"Если нужны уточнения — задай один короткий вопрос в конце."
             )
-
-            # LLM
             response = llm.chat(ChatRequest(
                 messages=[
                     LLMMessage(role=Role.SYSTEM, content=SYSTEM_PROMPT),
                     LLMMessage(role=Role.USER, content=user_msg),
                 ],
-                temperature=TEMPERATURE, max_output_tokens=600,
+                temperature=TEMPERATURE,
+                max_output_tokens=600,
             ))
             answer = (response.text or "").strip() or fallback_answer()
             if len(answer) > 10_000:
                 answer = answer[:9_950] + "…"
 
-            log.info("[%s] ok (%d chars, ctx=%d)", q["id"], len(answer), len(contexts))
+            log.info("[%s] ok (ctx=%d, chars=%d)", q["id"], len(contexts), len(answer))
             return i, answer
         except Exception as e:
             log.exception("[%s] ERROR: %s", q["id"], e)
@@ -381,15 +395,22 @@ def main() -> None:
             i, answer = fut.result()
             results[i] = answer
 
-    # Запись
-    answers = [{"id": q["id"], "answer": results[i] or fallback_answer()} for i, q in enumerate(questions)]
+    answers = [
+        {"id": q["id"], "answer": results[i] or fallback_answer()}
+        for i, q in enumerate(questions)
+    ]
     write_submission(Path("submission.csv"), answers)
+
     log.info("=" * 60)
     log.info("DONE за %.1f секунд", time.time() - t_start)
     log.info("=" * 60)
-    
+
     if reranker is not None:
-        reranker.close()
+        try:
+            reranker.close()
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     try:
@@ -401,7 +422,10 @@ if __name__ == "__main__":
                 questions_path = DATA_DIR / "questions.csv"
                 if questions_path.exists():
                     qs = read_questions(questions_path)
-                    write_submission(Path("submission.csv"), [{"id": q["id"], "answer": fallback_answer()} for q in qs])
+                    write_submission(
+                        Path("submission.csv"),
+                        [{"id": q["id"], "answer": fallback_answer()} for q in qs],
+                    )
         except Exception:
             pass
         sys.exit(1)
