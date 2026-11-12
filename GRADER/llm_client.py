@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Optional, Type, TypeVar
 
+import httpx
 import openai
 from openai import OpenAI
 from pydantic import BaseModel
@@ -46,6 +47,7 @@ class LLMClient:
             api_key=self._api_key,
             timeout=self._timeout,
             max_retries=self._max_retries,
+            http_client=httpx.Client(verify=False, timeout=self._timeout)
         )
 
         model = request.model or self._default_model

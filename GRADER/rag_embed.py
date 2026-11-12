@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
+import httpx
 from openai import OpenAI
 
 from structs import Embedding
@@ -34,7 +35,11 @@ class RemoteEmbedder:
         batch_size: int = 32,
         timeout: float = 60.0,
     ):
-        self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+        self._client = OpenAI(
+            base_url=base_url, 
+            api_key=api_key, 
+            timeout=timeout,
+            http_client=httpx.Client(verify=False, timeout=timeout))
         self._model = model
         self._batch_size = batch_size
 

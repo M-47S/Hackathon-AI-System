@@ -165,10 +165,41 @@ def prepare_knowledge_base(dst_dir: Path) -> list[Path]:
     return md_files
 
 def read_questions(path: Path) -> list[dict]:
-    with open(path, encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        rows = [{"id": r["id"], "question": r["question"]} for r in reader]
-    log.info("Загружено вопросов: %d", len(rows))
+    """
+    Читает questions.csv.
+
+    Устойчиво к:
+      - BOM в начале файла (utf-8-sig): символ \\ufeff в первой колонке
+      - пробелам/регистру в названиях колонок ('ID ', 'id', 'id')
+      - разделителю ',' или ';' (Sniffer)
+
+    Без этого fix упадёт KeyError: 'id' на demo_questions.csv, где
+    первая колонка называется '\\ufeffid'.
+    """
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;")
+        except csv.Error:
+            dialect = csv.excel  # fallback: обычный ','
+
+        reader = csv.DictReader(f, dialect=dialect)
+        rows: list[dict] = []
+        for r in reader:
+            normalized = {
+                (k or "").strip().lstrip("\ufeff").lower(): (v or "").strip()
+                for k, v in r.items()
+            }
+            qid = normalized.get("id", "")
+            question = normalized.get("question", "")
+            if not qid or not question:
+                # Мусорная строка — пропускаем, но логируем
+                log.warning("Пропущена строка без id/question: %r", r)
+                continue
+            rows.append({"id": qid, "question": question})
+
+    log.info("Загружено вопросов: %d (с BOM-защитой)", len(rows))
     return rows
 
 def write_submission(path: Path, answers: list[dict]) -> None:
