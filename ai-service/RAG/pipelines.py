@@ -23,6 +23,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Tuple, Union, Protocol, runtime_checkable
+import re
 
 from .structs import (
     Chunk,
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -74,6 +74,7 @@ class FillStats:
             s += f" [{preview}{'...' if len(self.skipped) > 3 else ''}]"
         return s
 
+
 @runtime_checkable
 class RerankerLike(Protocol):
     """
@@ -87,6 +88,19 @@ class RerankerLike(Protocol):
         top_n: int = 5,
     ) -> List[Tuple[int, float]]: ...
 
+
+_LINK_RE = re.compile(r"\[[^\]]+\]\([^)]+\)")
+
+# Подсказки «продуктового» запроса — для них поднимаем лимит на документ,
+# чтобы целевой документ был представлен 3-4 чанками (важно для Small-to-Big).
+
+
+_PRODUCT_HINTS = (
+    "аскуэ", "оптов", "солнечн", "потер", "распознаван",
+    "фото", "платформ", "учёт", "учет", "счётчик", "счетчик",
+    "генерац", "оре", "опт ", "оре ",
+)
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
@@ -98,10 +112,12 @@ def pipeline_search(
     top_k: int = 5,
     min_score: Optional[float] = None,
     chunk_filter: Optional[Callable[[Chunk], bool]] = None,
-    oversample: int = 3,
+    oversample: int = 5,
     reranker: Optional[RerankerLike] = None,
     query_text: Optional[str] = None,
     rerank_oversample: int = 5,
+    max_per_document: Optional[int] = None,   # ← None = авто (adaptive)
+    filter_toc: bool = True,                  # ← NEW: отсекать оглавления
 ) -> List[RetrievedChunk]:
     """
     Возвращает top_k релевантных чанков.
@@ -113,18 +129,21 @@ def pipeline_search(
        score — cosine из FAISS, шкала примерно [-1, 1].
 
     2) Reranker задан И query_text задан:
-       FAISS top-(top_k * rerank_oversample) → фильтр → reranker → top_k.
+       FAISS top-(top_k * rerank_oversample) → фильтр → TOC-фильтр
+       → диверсификация → reranker → top_k.
        score — от реранкера (logit, шкала зависит от модели).
        Поле `reranked=True` позволяет отличить режимы.
 
     Args:
-        query:            эмбеддинг запроса (для FAISS).
-        query_text:       исходный текст запроса (для реранкера).
-                          Обязателен, если передан reranker.
-        reranker:         любой объект с методом rerank(query, documents, top_n).
-        rerank_oversample: во сколько раз расширить FAISS-выборку,
-                          чтобы реранкеру было из чего выбирать.
-                          Для top_k=3 и rerank_oversample=5 → FAISS вернёт 15.
+        query:             эмбеддинг запроса (для FAISS).
+        query_text:        исходный текст запроса (для реранкера и adaptive).
+        reranker:          любой объект с методом rerank(query, documents, top_n).
+        rerank_oversample: во сколько раз расширить FAISS-выборку.
+        max_per_document:  не более N чанков с одного document_id.
+                           None — авто (2 для общих, 4 для продуктовых).
+                           0 — отключить диверсификацию.
+        filter_toc:        отсекать чанки-оглавления (markdown-ссылки).
+                           Работает всегда, независимо от реранкера.
     """
     if top_k <= 0:
         return []
@@ -136,10 +155,15 @@ def pipeline_search(
             "реранкер будет проигнорирован."
         )
 
+    # Авто-выбор лимита на документ, если явно не задан
+    if max_per_document is None:
+        max_per_document = _adaptive_max_per_document(query_text or "")
+
     # 1. Сколько запросить у FAISS
     if use_reranker:
         search_k = top_k * max(1, rerank_oversample)
-    elif chunk_filter is not None:
+    elif chunk_filter is not None or filter_toc:
+        # Если применяем пост-фильтры, берём с запасом
         search_k = top_k * max(1, oversample)
     else:
         search_k = top_k
@@ -162,14 +186,25 @@ def pipeline_search(
             continue
         ordered_chunks.append(chunk)
 
-    # 4. Hard-фильтр (до реранкера — сужаем кандидатов)
+    # 4a. Hard-фильтр (пользовательский)
     if chunk_filter is not None:
         ordered_chunks = [c for c in ordered_chunks if chunk_filter(c)]
+
+    # 4b. TOC-фильтр (автоматический): отсекает чанки-оглавления
+    if filter_toc:
+        ordered_chunks = [c for c in ordered_chunks if not _is_toc_like(c)]
 
     if not ordered_chunks:
         return []
 
-    # 5. Reranker (soft-ranking)
+    # 5. Диверсификация по document_id
+    ordered_chunks = _diversify_by_document(
+        ordered_chunks,
+        max_per_document=max_per_document,
+        min_required=0 if use_reranker else top_k,
+    )
+
+    # 6. Reranker (soft-ranking)
     if use_reranker:
         reranked = reranker.rerank(
             query=query_text,
@@ -181,7 +216,7 @@ def pipeline_search(
             for idx, score in reranked
         ]
 
-    # 6. Fallback: score привязан к chunk_id (корректно при наличии фильтра)
+    # 7. Fallback: score по chunk_id
     hit_score = {h.chunk_id: h.score for h in hits}
     return [
         RetrievedChunk(chunk=c, score=hit_score[c.chunk_id], reranked=False)
@@ -202,6 +237,8 @@ def pipeline_search_with_context(
     reranker: Optional[RerankerLike] = None,
     query_text: Optional[str] = None,
     rerank_oversample: int = 5,
+    max_per_document: Optional[int] = None,
+    filter_toc: bool = True,
 ) -> List[ChunkContext]:
     """
     То же, что pipeline_search, но возвращает ChunkContext с поднятым
@@ -216,6 +253,8 @@ def pipeline_search_with_context(
         reranker=reranker,
         query_text=query_text,
         rerank_oversample=rerank_oversample,
+        max_per_document=max_per_document,
+        filter_toc=filter_toc,
     )
     return [
         doc_store.get_chunk_with_context(
@@ -223,6 +262,7 @@ def pipeline_search_with_context(
         )
         for hit in hits
     ]
+
 # ---------------------------------------------------------------------------
 # Fill
 # ---------------------------------------------------------------------------
@@ -465,6 +505,75 @@ def _sha256(path: Path, chunk_size: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+def _diversify_by_document(
+    chunks: List[Chunk],
+    max_per_document: int = 2,
+    min_required: int = 0,
+) -> List[Chunk]:
+    """
+    Ограничивает число чанков с одного document_id, чтобы длинный
+    документ (например, 24-losses) не доминировал в выдаче.
+
+    Двухуровневая логика:
+      1) «Ядро» — по max_per_document чанков с каждого документа,
+         в исходном порядке.
+      2) Если ядра меньше min_required — добираем из «переполнения»
+         в исходном порядке, чтобы не отдать пользователю меньше top_k.
+
+    Args:
+        chunks:         исходный список (порядок FAISS).
+        max_per_document: лимит на документ в «ядре».
+        min_required:   минимальное итоговое число чанков.
+                        Для no-reranker режима = top_k, чтобы не «недобрать».
+                        Для reranker режима = 0 (не мешаем реранкеру).
+    """
+    if max_per_document <= 0 or not chunks:
+        return chunks
+
+    primary: List[Chunk] = []
+    overflow: List[Chunk] = []
+    counts: dict[str, int] = {}
+
+    for c in chunks:
+        n = counts.get(c.document_id, 0)
+        if n < max_per_document:
+            counts[c.document_id] = n + 1
+            primary.append(c)
+        else:
+            overflow.append(c)
+
+    if min_required > 0 and len(primary) < min_required:
+        need = min_required - len(primary)
+        primary.extend(overflow[:need])
+
+    return primary
+
+
+def _is_toc_like(chunk: Chunk, threshold: float = 0.5) -> bool:
+    """
+    True, если чанк — в основном markdown-ссылки (оглавление, навигация).
+    Такие чанки плохи для RAG: в них много ключевых слов, но нет
+    содержательного ответа (классический кейс — 20-portfolio).
+    """
+    text = chunk.text
+    if not text:
+        return True
+    link_chars = sum(len(m.group(0)) for m in _LINK_RE.finditer(text))
+    return link_chars / len(text) > threshold
+
+
+def _adaptive_max_per_document(query_text: str, default: int = 2) -> int:
+    """
+    Для «продуктовых» запросов лимит выше (4), чтобы целевой документ
+    был представлен несколькими чанками (нужно для Small-to-Big).
+    Для общих запросов — default (2), защита от доминирования
+    одного длинного документа (24-losses).
+    """
+    q = (query_text or "").lower()
+    if any(hint in q for hint in _PRODUCT_HINTS):
+        return 4
+    return default# ---------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # Manual run / smoke test
 # ---------------------------------------------------------------------------
@@ -473,40 +582,41 @@ if __name__ == "__main__":
     # Запуск:  python -m RAG.pipelines
     import sys
     import time
+    import statistics
 
     DATA_DIR = Path(
-            r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\Data Knowledge"
+        r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service"
+        r"\RAG\Store\_test_\Data Knowledge"
     )
     INDEX_DIR = Path(
-        r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\Storage"
+        r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service"
+        r"\RAG\Store\Storage"
     )
 
-    # ---------- 1. Проверка входной папки ----------
+    # ---------- 1. Входная папка ----------
     if not DATA_DIR.exists():
-        print(f"❌ Не найдена папка с данными:\n   {DATA_DIR}")
+        print(f"❌ Не найдена папка: {DATA_DIR}")
         sys.exit(1)
 
     md_files = sorted(DATA_DIR.rglob("*.md"))
     print(f"📂 Папка: {DATA_DIR}")
     print(f"   .md файлов: {len(md_files)}")
-
     if not md_files:
-        print("❌ В папке нет .md файлов.")
         sys.exit(1)
 
-    # ---------- 1.5. Диагностика: есть ли «АСКУЭ» в базе ----------
-    print("\n🔎 Проверка термина «АСКУЭ» в базе знаний:")
-    hits_askue = 0
+    # ---------- 1.5. Диагностика: есть ли «АСКУЭ» ----------
+    print("\n🔎 Термин «АСКУЭ» в базе:")
+    total_askue = 0
     for f in md_files:
         n = f.read_text(encoding="utf-8").lower().count("аскуэ")
         if n:
-            hits_askue += n
-            print(f"   • {f.name}: {n} вхождений")
-    if hits_askue == 0:
-        print("   ⚠️ Термина «АСКУЭ» в базе нет — retrieval его не найдёт.")
-        print("   ⚠️ Стоит ожидать семантический поиск через «облачная платформа учёта».")
+            total_askue += n
+            print(f"   • {f.name}: {n}")
+    if total_askue == 0:
+        print("   ⚠️ 0 вхождений — retrieval не может найти термин,")
+        print("   ⚠️ нужен query expansion или другое название в запросе.")
     else:
-        print(f"   ✅ Всего вхождений: {hits_askue}")
+        print(f"   ✅ Всего вхождений: {total_askue}")
 
     # ---------- 2. Embedder ----------
     print("\n🔧 Загрузка EmbeddingWrapper...")
@@ -519,9 +629,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     probe_dim = embedder._get_text_embedding("probe").size
-    print(f"   Модель загружена, размерность: {probe_dim}")
+    print(f"   Модель загружена, dim={probe_dim}")
 
-    # ---------- 3. Сборка индекса ----------
+    # ---------- 3. Индексация ----------
     print(f"\n🚀 Индексирование в {INDEX_DIR}")
     stats = pipeline_build_from_directory(
         raw_dir=DATA_DIR,
@@ -531,12 +641,9 @@ if __name__ == "__main__":
         save=True,
     )
     print(f"✅ {stats.summary()}")
-    if stats.skipped:
-        for p, reason in stats.skipped:
-            print(f"   ⚠️ {Path(p).name}: {reason}")
 
     # ---------- 4. Загрузка ----------
-    print("\n🔍 Загрузка индекса с диска...")
+    print("\n🔍 Загрузка индекса...")
     doc_store, vec_store = pipeline_load(INDEX_DIR, DATA_DIR)
     n_docs = len(list(doc_store.documents))
     n_chunks = len(doc_store)
@@ -546,13 +653,25 @@ if __name__ == "__main__":
     print(f"   Чанков:           {n_chunks} "
           f"(родителей {n_chunks - n_leaves}, листьев {n_leaves})")
     print(f"   Векторов в FAISS: {n_vectors}")
-    print(f"   next_chunk_id:    {doc_store.next_chunk_id}")
     assert n_vectors == n_leaves, (
-        f"❌ Рассинхронизация: {n_vectors} векторов vs {n_leaves} листьев"
+        f"❌ {n_vectors} векторов vs {n_leaves} листьев — пересоберите индекс"
     )
     print("   ✅ Векторы ↔ листья синхронизированы")
 
-    # ---------- 5. Локальный реранкер ----------
+    # ---------- 4.5. TOC-диагностика ----------
+    print("\n🧹 TOC-фильтр (оглавления):")
+    toc_chunks = [c for c in doc_store.leaf_chunks if _is_toc_like(c)]
+    if toc_chunks:
+        from collections import Counter
+        by_doc = Counter(c.document_id for c in toc_chunks)
+        print(f"   Найдено TOC-подобных листьев: {len(toc_chunks)}")
+        for doc_id, n in by_doc.most_common(5):
+            print(f"   • {doc_id}: {n}")
+        print("   Эти листья не будут попадать в выдачу.")
+    else:
+        print("   TOC-подобных листьев не найдено.")
+
+    # ---------- 5. Реранкер ----------
     print("\n🎯 Загрузка LocalReranker...")
     reranker = None
     try:
@@ -565,7 +684,6 @@ if __name__ == "__main__":
         print("   ⚠️ Дальше — режим без реранкера.")
 
     # ---------- 6. Тестовые запросы ----------
-    # Сначала «проблемный» АСКУЭ, потом реальные из demo_questions.csv
     test_queries = [
         "Что такое АСКУЭ и как подключить счётчики?",
         "У нас несколько магазинов. Можно смотреть их расход в одном кабинете?",
@@ -573,72 +691,108 @@ if __name__ == "__main__":
         "Хочу видеть расход электричества отдельно по цехам.",
     ]
 
+    def _fmt_hits(hits: List[RetrievedChunk]) -> str:
+        return ", ".join(
+            f"{h.chunk.document_id}#{h.chunk.chunk_id}"
+            for h in hits
+        )
+
     def _print_hits(title: str, hits: List[RetrievedChunk]) -> None:
         print(f"\n   {title}:")
         if not hits:
             print("      ⚠️ пусто")
             return
         for i, h in enumerate(hits, 1):
-            section = h.chunk.section_title or "—"
-            preview = h.chunk.text[:100].replace("\n", " ").strip()
+            section = (h.chunk.section_title or "—")[:40]
+            preview = h.chunk.text[:90].replace("\n", " ").strip()
             tag = "rerank" if h.reranked else "cos"
             print(f"      {i}. [{tag:6s} {h.score:+.3f}] "
                   f"{h.chunk.document_id} / {section}")
             print(f"         {preview}...")
 
+    # Копим тайминги для итога
+    timings_rerank: List[float] = []
+
     for q in test_queries:
         print("\n" + "=" * 70)
         print(f"❓ {q}")
-        q_emb = embedder._get_query_embedding(q)
 
-        # Без реранкера: FAISS top-5
+        q_emb = embedder._get_query_embedding(q)
+        m = _adaptive_max_per_document(q)
+        print(f"   ℹ️ adaptive max_per_document = {m}")
+
+        # --- Без реранкера, без фильтров (baseline) ---
         t0 = time.perf_counter()
-        base_hits = pipeline_search(
+        hits_raw = pipeline_search(
             doc_store, vec_store, q_emb,
             top_k=5, min_score=0.0,
+            filter_toc=False,
+            max_per_document=0,
         )
-        dt = (time.perf_counter() - t0) * 1000
-        _print_hits(f"FAISS top-5 ({dt:.0f} ms)", base_hits)
+        dt_raw = (time.perf_counter() - t0) * 1000
+        _print_hits(f"Baseline FAISS top-5 ({dt_raw:.0f} ms)", hits_raw)
 
-        # С реранкером
+        # --- С TOC-фильтром и адаптивной диверсификацией, без реранкера ---
+        t0 = time.perf_counter()
+        hits_div = pipeline_search(
+            doc_store, vec_store, q_emb,
+            top_k=5, min_score=0.0,
+            filter_toc=True,
+            max_per_document=m,
+        )
+        dt_div = (time.perf_counter() - t0) * 1000
+        _print_hits(f"FAISS+TOC+adaptive top-5 ({dt_div:.0f} ms)", hits_div)
+
+        # --- С реранкером ---
         if reranker is not None:
             t0 = time.perf_counter()
-            rer_hits = pipeline_search(
+            hits_rer = pipeline_search(
                 doc_store, vec_store, q_emb,
                 top_k=5, min_score=0.0,
-                reranker=reranker,
-                query_text=q,
-                rerank_oversample=5,  # FAISS вернёт 25, реранкер сузит до 5
+                reranker=reranker, query_text=q,
+                rerank_oversample=5,
+                filter_toc=True,
+                max_per_document=m,
             )
-            dt = (time.perf_counter() - t0) * 1000
-            _print_hits(f"Reranker top-5 ({dt:.0f} ms)", rer_hits)
+            dt_rer = (time.perf_counter() - t0) * 1000
+            timings_rerank.append(dt_rer)
+            _print_hits(f"Reranker+TOC+adaptive top-5 ({dt_rer:.0f} ms)", hits_rer)
 
-            # Показать, куда переехал топ-1 из FAISS
-            if base_hits and rer_hits:
-                faiss_top = base_hits[0].chunk.chunk_id
-                positions = [i for i, h in enumerate(rer_hits, 1)
-                             if h.chunk.chunk_id == faiss_top]
-                pos = positions[0] if positions else "вне топ-5"
-                print(f"\n   ℹ️ FAISS-топ1 (id={faiss_top}) "
-                      f"после реранкера: {pos}")
+            # Краткая сводка по документам
+            print(f"\n   📋 Документы baseline: "
+                  f"{[h.chunk.document_id for h in hits_raw]}")
+            print(f"   📋 Документы reranked: "
+                  f"{[h.chunk.document_id for h in hits_rer]}")
 
-    # ---------- 7. Small-to-Big (пример с parent) ----------
+    # ---------- 7. Small-to-Big на запросе про АСКУЭ ----------
     print("\n" + "=" * 70)
-    print("🔗 Small-to-Big (PARENT) — на запросе про АСКУЭ:")
+    print("🔗 Small-to-Big (PARENT) на запросе про АСКУЭ:")
     q = "Что такое АСКУЭ и как подключить счётчики?"
     q_emb = embedder._get_query_embedding(q)
+    m = _adaptive_max_per_document(q)
     ctxs = pipeline_search_with_context(
         doc_store, vec_store, q_emb,
         mode=ContextMode.PARENT, top_k=3,
         reranker=reranker, query_text=q,
+        filter_toc=True, max_per_document=m,
     )
     for i, ctx in enumerate(ctxs, 1):
         has_parent = "да" if ctx.parent is not None else "нет"
         print(
-            f"   {i}. chunk_id={ctx.chunk.chunk_id} "
+            f"   {i}. chunk={ctx.chunk.chunk_id} "
             f"({ctx.chunk.document_id}/{ctx.chunk.section_title or '—'}), "
             f"parent={has_parent}, "
             f"context_len={len(ctx.context_text)}"
         )
+
+    # ---------- 8. Итоговая статистика ----------
+    if timings_rerank:
+        print("\n" + "=" * 70)
+        print("📊 Тайминги реранкера:")
+        print(f"   min:    {min(timings_rerank):.0f} ms")
+        print(f"   median: {statistics.median(timings_rerank):.0f} ms")
+        print(f"   max:    {max(timings_rerank):.0f} ms")
+        print(f"   на 100 запросов (4 воркера): "
+              f"{statistics.median(timings_rerank) * 100 / 4 / 1000:.1f} сек")
 
     print("\n🎉 Готово.")
