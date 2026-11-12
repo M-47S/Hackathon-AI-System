@@ -126,16 +126,24 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 }
 
 // Данная функция вставляет данные в Таблицу
-// Можно запенить на gorm.Model().Save()
-func InsertUserMessage(json_data UserRequest) error {
-	var user_message Messages
-	user_message.MessageId = uuid.NewString()
-	user_message.SessionId = json_data.SessionId
-	user_message.Role = "user"
-	user_message.Action = ""
-	user_message.Content = json_data.Message
-	user_message.CreatedAt = time.Now()
-	err := globalDBCon.Create(&user_message).Error
+func InsertMessage(json_data any) error {
+	message := Messages {
+		MessageId: uuid.NewString(),
+		CreatedAt: time.Now(),
+	}
+	switch type_struct := json_data.(type) {
+	case UserRequest :
+		message.SessionId = type_struct.SessionId
+		message.Role = "user"
+		message.Action = ""
+		message.Content = type_struct.Message
+	case AIResponseForm :
+		message.SessionId = type_struct.SessionId
+		message.Role = "ai"
+		message.Action = type_struct.Action
+		message.Content = type_struct.Answer
+	}
+	err := globalDBCon.Create(&message).Error
 	return err
 }
 
@@ -147,4 +155,14 @@ func initLogger(){
 
 func LogStruct(label string, data interface{}){
 	log.Printf(" %s\n%s", label, spew.Sdump(data))
+}
+
+
+func FillErrorForm(title string, status int, err error) (interface{}){
+	var error_struct ErrorForm
+	error_struct.Type = "about:blank"
+	error_struct.Title = title
+	error_struct.Status = status
+	error_struct.Detail = err.Error()
+    return  error_struct
 }

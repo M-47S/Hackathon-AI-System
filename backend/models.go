@@ -1,5 +1,13 @@
 package main
 
+
+type ErrorForm struct {
+	Type string `json:"type"`
+	Title string `json:"title"`
+	Status int `json:"status"`
+	Detail string `json:"detail"`
+}
+
 // Структура для возвращения информации о сессии /api/sessions
 type SessionForm struct{
 	SessionId string `json:"session_id"`
@@ -53,6 +61,7 @@ type RequestToAI struct {
 }
 // Структура для принятия ответа из LLM /v1/chat
 type AIResponseForm struct {
+  SessionId string `json:"session_id"`
   Action string `json:"action"`
   Answer string `json:"answer"`
   ProductIds []string `json:"recommended_product_ids"`

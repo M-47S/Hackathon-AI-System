@@ -27,7 +27,7 @@ func CreateSessionHandler(ctx *gin.Context){
 	err := globalDBCon.Create(&session).Error
 	if err != nil {
 		log.Printf("Неудалось создать запись о Сессии в БД | err: %s", err.Error())
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать сессию БД", "details": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
 	}
 	var session_response SessionForm
@@ -39,38 +39,44 @@ func CreateSessionHandler(ctx *gin.Context){
 }
 
 
-// 4.2 POST /api/chat (Наверное готово)
+// 4.2 POST /api/chat 
 // Данный handler обрабатывает сообщение от пользователя в конкретном чате записывает его в историю а также отправяет LLM модели ждет ответ и отправялет обратно на front
 func UserMessageHandler(ctx *gin.Context) {
 	var user_request UserRequest
 	if err := ctx.ShouldBindJSON(&user_request); err != nil {
 		log.Printf("Неудалось обработать пришедший JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON", "details": err.Error()})
+		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
 		return
 	}
 	
 	LogStruct("Сообщение от пользователя", user_request)
-	err := InsertUserMessage(user_request)
-	if err != nil {
-		log.Printf("Неудалось записать в Struct в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось записать Сообщение в БД", "details" : err.Error()})
-		return
-	}
 
 	ai_response, err := GetAIAnwser(user_request)
 	if err != nil {
 		log.Printf("Неудалось получить ответ от ИИ | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неудалось получить ответ от ИИ", "details" : err.Error()})
+		ctx.JSON(503, FillErrorForm("AI Response Error", 503, err))
 		return
 	}
-	//Необходимо записать ответ ИИ в БД
 	LogStruct("Ответ ИИ", ai_response)
+	err = InsertMessage(user_request)
+	if err != nil {
+		log.Printf("Неудалось записать в сообщение пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	err = InsertMessage(ai_response)
+	if err != nil {
+		log.Printf("Неудалось записать в ответ ИИ в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}
 	ctx.JSON(http.StatusOK, ai_response)
 }
 
 
 // Данный Handler необходим чтобы найти все сообщения Ai и User по session_id для отрисовки пользователю
-// 4.3 GET /api/sessions/{session_id}/messages (Наверное готово)
+// 4.3 GET /api/sessions/{session_id}/messages
 func ChatHistoryHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
 	_ = session_id
@@ -78,7 +84,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 	history, err := GetAllFromDB[FrontHistoryMessageForm](session_id, &Messages{})
 	if err != nil {
 		log.Printf("Неудалось корректно найти историю в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusBadRequest, gin.H{"error" : "Ошибка при поиске в БД", "details": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
 	respons.SessionId = session_id
@@ -94,7 +100,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 func ManagerStatmentHandler(ctx *gin.Context){
 	var statment_form ManagerStatementForm
 	if err := ctx.ShouldBindJSON(&statment_form); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат JSON"})
+		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
 		return
 	}
 	// дальше запрос сохраняем в БД а также созданную структуру LeadForm !!
