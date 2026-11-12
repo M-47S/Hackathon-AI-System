@@ -25,3 +25,12 @@ class QwenReranker:
         data = response.json()
         # формат: {"results": [{"index": 3, "relevance_score": 0.92}, ...]}
         return [(r["index"], r["relevance_score"]) for r in data["results"]]
+    
+    def close(self) -> None:
+        try:
+            self._client.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()

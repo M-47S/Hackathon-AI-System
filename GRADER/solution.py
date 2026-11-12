@@ -356,6 +356,9 @@ def main() -> None:
     log.info("=" * 60)
     log.info("DONE за %.1f секунд", time.time() - t_start)
     log.info("=" * 60)
+    
+    if reranker is not None:
+        reranker.close()
 
 if __name__ == "__main__":
     try:
