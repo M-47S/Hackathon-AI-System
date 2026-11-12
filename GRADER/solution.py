@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import sys
+import re
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -195,6 +196,30 @@ def fallback_answer() -> str:
         "Рекомендую связаться со специалистом МТС EnergyTool для консультации."
     )
 
+def _clean_expanded(text: str) -> str:
+    """Убирает типичные префиксы/кавычки из ответа LLM."""
+    if not text:
+        return ""
+    s = text.strip()
+    # Убираем markdown-обёртки
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\n?", "", s)
+        s = re.sub(r"\n?```$", "", s)
+    # Убираем типичные префиксы
+    s = re.sub(
+        r"^(конечно[!,.\s]*|хорошо[!,.\s]*|вот\s+|"
+        r"переписанный\s+запрос\s*[:：]\s*|"
+        r"расширенный\s+запрос\s*[:：]\s*|"
+        r"запрос\s*[:：]\s*)",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    # Убираем кавычки по краям
+    s = s.strip().strip('«»"\'""').strip()
+    return s
+
+
 def expand_query(llm: LLMClient, query: str) -> str:
     try:
         resp = llm.chat(ChatRequest(
@@ -202,8 +227,11 @@ def expand_query(llm: LLMClient, query: str) -> str:
             temperature=0.1,
             max_output_tokens=150,
         ))
-        expanded = (resp.text or "").strip()
-        return expanded if expanded else query
+        expanded = _clean_expanded(resp.text or "")
+        # Санити-чек: если получилось короче 10 символов — вернуть оригинал
+        if len(expanded) < 10:
+            return query
+        return expanded
     except Exception as e:
         log.warning("Query expansion failed for %r: %s", query, e)
         return query
