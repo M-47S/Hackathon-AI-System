@@ -91,7 +91,6 @@ func ChatHistoryHandler(ctx *gin.Context){
 	respons.History = history
 	LogStruct("История сессии для отрисовки", respons)
 	ctx.JSON(http.StatusOK, respons)
-
 }
 
 
