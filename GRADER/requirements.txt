@@ -1,0 +1,13 @@
+# === LLM / Embeddings / Reranker (через OpenAI-совместимый прокси) ===
+openai==3.49.0
+httpx==0.28.1
+
+# === Vector search ===
+faiss-cpu==1.15.1
+numpy==2.5.4
+
+# === Pydantic-схемы ===
+pydantic==2.14.3
+
+# === Chunker (llama-index: MarkdownNodeParser + SentenceSplitter) ===
+llama-index-core==0.14.25
