@@ -100,6 +100,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 func ManagerStatmentHandler(ctx *gin.Context){
 	var statment_form ManagerStatementForm
 	if err := ctx.ShouldBindJSON(&statment_form); err != nil {
+		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
 		return
 	}
