@@ -101,6 +101,20 @@ _PRODUCT_HINTS = (
     "генерац", "оре", "опт ", "оре ",
 )
 
+
+QUERY_INSTRUCTIONS: dict[str, str] = {
+    "none": "",
+    "short_ru": "Поиск в базе знаний по энергетике и продуктам МТС EnergyTool: ",
+    "detailed_ru": (
+        "Найди в базе знаний МТС EnergyTool информацию, "
+        "которая отвечает на вопрос клиента: "
+    ),
+    "bge_official": "Represent this sentence for searching relevant passages: ",
+}
+
+
+DEFAULT_QUERY_INSTRUCTION = QUERY_INSTRUCTIONS["detailed_ru"]
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
@@ -262,6 +276,59 @@ def pipeline_search_with_context(
         )
         for hit in hits
     ]
+
+
+def pipeline_search_by_text(
+    embedder,
+    doc_store: DocumentStore,
+    vec_store: VectorStore,
+    query_text: str,
+    query_instruction: Optional[str] = DEFAULT_QUERY_INSTRUCTION,
+    **search_kwargs,
+) -> List[RetrievedChunk]:
+    """
+    Высокоуровневая обёртка над pipeline_search:
+      1) формирует обогащённый текст запроса (instruction + query_text),
+      2) эмбеддит его,
+      3) передаёт ЧИСТЫЙ query_text в реранкер и adaptive max_per_document.
+
+    Это и есть Instruction Prefix technique: инструкция даёт модели доменный
+    контекст («это поиск по энергетике»), а чистый текст запроса идёт в
+    cross-encoder реранкер, который обучен именно на «query + document».
+    """
+    text_for_embedding = (
+        f"{query_instruction}{query_text}" if query_instruction else query_text
+    )
+    query_embedding = embedder._get_query_embedding(text_for_embedding)
+    return pipeline_search(
+        doc_store=doc_store,
+        vec_store=vec_store,
+        query=query_embedding,
+        query_text=query_text,
+        **search_kwargs,
+    )
+
+
+def pipeline_search_with_context_by_text(
+    embedder,
+    doc_store: DocumentStore,
+    vec_store: VectorStore,
+    query_text: str,
+    query_instruction: Optional[str] = DEFAULT_QUERY_INSTRUCTION,
+    **search_kwargs,
+) -> List[ChunkContext]:
+    """Аналог pipeline_search_by_text для Small-to-Big (ChunkContext)."""
+    text_for_embedding = (
+        f"{query_instruction}{query_text}" if query_instruction else query_text
+    )
+    query_embedding = embedder._get_query_embedding(text_for_embedding)
+    return pipeline_search_with_context(
+        doc_store=doc_store,
+        vec_store=vec_store,
+        query=query_embedding,
+        query_text=query_text,
+        **search_kwargs,
+    )    
 
 # ---------------------------------------------------------------------------
 # Fill
@@ -579,7 +646,6 @@ def _adaptive_max_per_document(query_text: str, default: int = 2) -> int:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Запуск:  python -m RAG.pipelines
     import sys
     import time
     import statistics
@@ -593,7 +659,6 @@ if __name__ == "__main__":
         r"\RAG\Store\Storage"
     )
 
-    # ---------- 1. Входная папка ----------
     if not DATA_DIR.exists():
         print(f"❌ Не найдена папка: {DATA_DIR}")
         sys.exit(1)
@@ -604,7 +669,7 @@ if __name__ == "__main__":
     if not md_files:
         sys.exit(1)
 
-    # ---------- 1.5. Диагностика: есть ли «АСКУЭ» ----------
+    # ---------- Диагностика АСКУЭ ----------
     print("\n🔎 Термин «АСКУЭ» в базе:")
     total_askue = 0
     for f in md_files:
@@ -613,12 +678,10 @@ if __name__ == "__main__":
             total_askue += n
             print(f"   • {f.name}: {n}")
     if total_askue == 0:
-        print("   ⚠️ 0 вхождений — retrieval не может найти термин,")
-        print("   ⚠️ нужен query expansion или другое название в запросе.")
-    else:
-        print(f"   ✅ Всего вхождений: {total_askue}")
+        print("   ⚠️ 0 вхождений — retrieval не найдёт термин буквально,")
+        print("   ⚠️ но instruction prefix может помочь семантически.")
 
-    # ---------- 2. Embedder ----------
+    # ---------- Embedder ----------
     print("\n🔧 Загрузка EmbeddingWrapper...")
     from .Embedding import EmbeddingWrapper  # noqa: E402
 
@@ -629,10 +692,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     probe_dim = embedder._get_text_embedding("probe").size
-    print(f"   Модель загружена, dim={probe_dim}")
+    print(f"   dim={probe_dim}")
 
-    # ---------- 3. Индексация ----------
-    print(f"\n🚀 Индексирование в {INDEX_DIR}")
+    # ---------- Индексация ----------
+    print(f"\n🚀 Индексирование → {INDEX_DIR}")
     stats = pipeline_build_from_directory(
         raw_dir=DATA_DIR,
         index_dir=INDEX_DIR,
@@ -642,62 +705,33 @@ if __name__ == "__main__":
     )
     print(f"✅ {stats.summary()}")
 
-    # ---------- 4. Загрузка ----------
-    print("\n🔍 Загрузка индекса...")
+    # ---------- Загрузка ----------
     doc_store, vec_store = pipeline_load(INDEX_DIR, DATA_DIR)
-    n_docs = len(list(doc_store.documents))
-    n_chunks = len(doc_store)
     n_leaves = len(doc_store.leaf_chunks)
     n_vectors = len(vec_store)
-    print(f"   Документов:       {n_docs}")
-    print(f"   Чанков:           {n_chunks} "
-          f"(родителей {n_chunks - n_leaves}, листьев {n_leaves})")
-    print(f"   Векторов в FAISS: {n_vectors}")
-    assert n_vectors == n_leaves, (
-        f"❌ {n_vectors} векторов vs {n_leaves} листьев — пересоберите индекс"
-    )
-    print("   ✅ Векторы ↔ листья синхронизированы")
+    print(f"   Чанков={len(doc_store)}, листьев={n_leaves}, векторов={n_vectors}")
+    assert n_vectors == n_leaves
 
-    # ---------- 4.5. TOC-диагностика ----------
-    print("\n🧹 TOC-фильтр (оглавления):")
+    # ---------- TOC-диагностика ----------
     toc_chunks = [c for c in doc_store.leaf_chunks if _is_toc_like(c)]
-    if toc_chunks:
-        from collections import Counter
-        by_doc = Counter(c.document_id for c in toc_chunks)
-        print(f"   Найдено TOC-подобных листьев: {len(toc_chunks)}")
-        for doc_id, n in by_doc.most_common(5):
-            print(f"   • {doc_id}: {n}")
-        print("   Эти листья не будут попадать в выдачу.")
-    else:
-        print("   TOC-подобных листьев не найдено.")
+    print(f"\n🧹 TOC-подобных листьев: {len(toc_chunks)} (отсекаются из выдачи)")
 
-    # ---------- 5. Реранкер ----------
+    # ---------- Реранкер ----------
     print("\n🎯 Загрузка LocalReranker...")
     reranker = None
     try:
         from .Ranking import LocalReranker  # noqa: E402
         t0 = time.perf_counter()
         reranker = LocalReranker(device="cpu")
-        print(f"   ✅ Загружен за {time.perf_counter() - t0:.1f}s")
+        print(f"   ✅ за {time.perf_counter() - t0:.1f}s")
     except Exception as e:
-        print(f"   ⚠️ Не удалось загрузить реранкер: {e}")
-        print("   ⚠️ Дальше — режим без реранкера.")
+        print(f"   ⚠️ не загружен: {e}")
 
-    # ---------- 6. Тестовые запросы ----------
-    test_queries = [
-        "Что такое АСКУЭ и как подключить счётчики?",
-        "У нас несколько магазинов. Можно смотреть их расход в одном кабинете?",
-        "В счётчиках стоят симки другого оператора. Для вашей платформы их надо менять?",
-        "Хочу видеть расход электричества отдельно по цехам.",
-    ]
+    # ---------- Хелперы печати ----------
+    def _docs(hits):
+        return [h.chunk.document_id for h in hits]
 
-    def _fmt_hits(hits: List[RetrievedChunk]) -> str:
-        return ", ".join(
-            f"{h.chunk.document_id}#{h.chunk.chunk_id}"
-            for h in hits
-        )
-
-    def _print_hits(title: str, hits: List[RetrievedChunk]) -> None:
+    def _print_hits(title, hits):
         print(f"\n   {title}:")
         if not hits:
             print("      ⚠️ пусто")
@@ -710,89 +744,79 @@ if __name__ == "__main__":
                   f"{h.chunk.document_id} / {section}")
             print(f"         {preview}...")
 
-    # Копим тайминги для итога
-    timings_rerank: List[float] = []
+    # ---------- A/B: инструкции на проблемном запросе ----------
+    probe_query = "Что такое АСКУЭ и как подключить счётчики?"
+    print("\n" + "=" * 70)
+    print(f"🧪 A/B-тест Instruction Prefix")
+    print(f"❓ {probe_query}")
+    m_probe = _adaptive_max_per_document(probe_query)
+    print(f"   adaptive max_per_document={m_probe}")
 
-    for q in test_queries:
-        print("\n" + "=" * 70)
-        print(f"❓ {q}")
+    doc_sets: dict[str, list[str]] = {}
 
-        q_emb = embedder._get_query_embedding(q)
-        m = _adaptive_max_per_document(q)
-        print(f"   ℹ️ adaptive max_per_document = {m}")
+    for name, instr in QUERY_INSTRUCTIONS.items():
+        try:
+            hits = pipeline_search_by_text(
+                embedder, doc_store, vec_store, probe_query,
+                query_instruction=instr,
+                top_k=5, min_score=0.0,
+                filter_toc=True, max_per_document=m_probe,
+            )
+        except Exception as e:
+            print(f"\n   ❌ {name}: {e}")
+            continue
+        doc_sets[name] = _docs(hits)
+        _print_hits(f"Instruction = {name!r}", hits)
 
-        # --- Без реранкера, без фильтров (baseline) ---
+    # ---------- Сводка: какие документы всплыли ----------
+    print("\n   📊 Итог по документам:")
+    for name, docs in doc_sets.items():
+        print(f"      {name:12s} → {docs}")
+
+    # ---------- A/B + reranker (только для detailed_ru) ----------
+    if reranker is not None:
+        print("\n" + "-" * 70)
+        print("🎯 С реранкером (instruction = 'detailed_ru'):")
         t0 = time.perf_counter()
-        hits_raw = pipeline_search(
-            doc_store, vec_store, q_emb,
+        hits_rer = pipeline_search_by_text(
+            embedder, doc_store, vec_store, probe_query,
+            query_instruction=QUERY_INSTRUCTIONS["detailed_ru"],
             top_k=5, min_score=0.0,
-            filter_toc=False,
-            max_per_document=0,
+            filter_toc=True, max_per_document=m_probe,
+            reranker=reranker, rerank_oversample=5,
         )
-        dt_raw = (time.perf_counter() - t0) * 1000
-        _print_hits(f"Baseline FAISS top-5 ({dt_raw:.0f} ms)", hits_raw)
+        dt = (time.perf_counter() - t0) * 1000
+        _print_hits(f"Reranker ({dt:.0f} ms)", hits_rer)
+        print(f"\n      Документы: {_docs(hits_rer)}")
 
-        # --- С TOC-фильтром и адаптивной диверсификацией, без реранкера ---
+    # ---------- Прогон на реальных запросах ----------
+    real_queries = [
+        "У нас несколько магазинов. Можно смотреть их расход в одном кабинете?",
+        "В счётчиках стоят симки другого оператора. Для нас это проблема?",
+        "Хочу видеть расход электричества отдельно по цехам.",
+    ]
+
+    print("\n" + "=" * 70)
+    print("📋 Реальные запросы (instruction = 'detailed_ru')")
+
+    timings: list[float] = []
+    for q in real_queries:
+        print(f"\n❓ {q}")
         t0 = time.perf_counter()
-        hits_div = pipeline_search(
-            doc_store, vec_store, q_emb,
+        hits = pipeline_search_by_text(
+            embedder, doc_store, vec_store, q,
+            query_instruction=QUERY_INSTRUCTIONS["detailed_ru"],
             top_k=5, min_score=0.0,
             filter_toc=True,
-            max_per_document=m,
+            reranker=reranker, rerank_oversample=5,
         )
-        dt_div = (time.perf_counter() - t0) * 1000
-        _print_hits(f"FAISS+TOC+adaptive top-5 ({dt_div:.0f} ms)", hits_div)
+        dt = (time.perf_counter() - t0) * 1000
+        timings.append(dt)
+        _print_hits(f"top-5 ({dt:.0f} ms)", hits)
 
-        # --- С реранкером ---
-        if reranker is not None:
-            t0 = time.perf_counter()
-            hits_rer = pipeline_search(
-                doc_store, vec_store, q_emb,
-                top_k=5, min_score=0.0,
-                reranker=reranker, query_text=q,
-                rerank_oversample=5,
-                filter_toc=True,
-                max_per_document=m,
-            )
-            dt_rer = (time.perf_counter() - t0) * 1000
-            timings_rerank.append(dt_rer)
-            _print_hits(f"Reranker+TOC+adaptive top-5 ({dt_rer:.0f} ms)", hits_rer)
-
-            # Краткая сводка по документам
-            print(f"\n   📋 Документы baseline: "
-                  f"{[h.chunk.document_id for h in hits_raw]}")
-            print(f"   📋 Документы reranked: "
-                  f"{[h.chunk.document_id for h in hits_rer]}")
-
-    # ---------- 7. Small-to-Big на запросе про АСКУЭ ----------
-    print("\n" + "=" * 70)
-    print("🔗 Small-to-Big (PARENT) на запросе про АСКУЭ:")
-    q = "Что такое АСКУЭ и как подключить счётчики?"
-    q_emb = embedder._get_query_embedding(q)
-    m = _adaptive_max_per_document(q)
-    ctxs = pipeline_search_with_context(
-        doc_store, vec_store, q_emb,
-        mode=ContextMode.PARENT, top_k=3,
-        reranker=reranker, query_text=q,
-        filter_toc=True, max_per_document=m,
-    )
-    for i, ctx in enumerate(ctxs, 1):
-        has_parent = "да" if ctx.parent is not None else "нет"
-        print(
-            f"   {i}. chunk={ctx.chunk.chunk_id} "
-            f"({ctx.chunk.document_id}/{ctx.chunk.section_title or '—'}), "
-            f"parent={has_parent}, "
-            f"context_len={len(ctx.context_text)}"
-        )
-
-    # ---------- 8. Итоговая статистика ----------
-    if timings_rerank:
-        print("\n" + "=" * 70)
-        print("📊 Тайминги реранкера:")
-        print(f"   min:    {min(timings_rerank):.0f} ms")
-        print(f"   median: {statistics.median(timings_rerank):.0f} ms")
-        print(f"   max:    {max(timings_rerank):.0f} ms")
-        print(f"   на 100 запросов (4 воркера): "
-              f"{statistics.median(timings_rerank) * 100 / 4 / 1000:.1f} сек")
+    if timings:
+        print(f"\n📊 Тайминги: median={statistics.median(timings):.0f} ms, "
+              f"на 100 запросов (4 воркера) ≈ "
+              f"{statistics.median(timings) * 100 / 4 / 1000:.1f} с")
 
     print("\n🎉 Готово.")
