@@ -11,3 +11,6 @@ pydantic==2.14.3
 
 # === Chunker (llama-index: MarkdownNodeParser + SentenceSplitter) ===
 llama-index-core==0.14.25
+
+# === Tokenization (для SentenceSplitter) ===
+tiktoken==0.14.0
