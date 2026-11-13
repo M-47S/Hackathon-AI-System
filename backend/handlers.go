@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 	"os"
-	"errors"
 	"strconv"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,13 +22,20 @@ func HealthHandler(ctx *gin.Context){
 // дополнительные данные для записи в БД 
 // 4.1 POST /api/sessions (Наверное готово)
 func CreateSessionHandler(ctx *gin.Context){
+	customer_id, err := GetCustomerIdFromDB(ctx)
+	if err != nil {
+		log.Printf("Ошибка при работе с Cookie | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
 	var session Session
 	uuid := uuid.NewString()
 	created_time := time.Now()
 	session.SessionId = uuid
 	session.CreatedAt = created_time
+	session.CustomerId = customer_id
 	LogStruct("Структура сессии для записи в БД", session)
-	err := globalDBCon.Create(&session).Error
+	err = globalDBCon.Create(&session).Error
 	if err != nil {
 		log.Printf("Неудалось создать запись о Сессии в БД | err: %s", err.Error())
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
@@ -173,30 +179,16 @@ func LogoutCustomer(ctx *gin.Context){
 
 // /api/login/cookie
 func LoginCustomerCookie(ctx *gin.Context){
-	val, exists := ctx.Get(CookieName)
-	if !exists {
-		err := errors.New("Cookie_id wasn't exist in context map")
-		log.Printf("Неудалось найти cookie_id в хранилище контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Middleware Map Error", http.StatusInternalServerError, err))
-		return
-	}
-	cookie_id, ok := val.(string)
 
-	if !ok {
-		err := errors.New("Can't cast cookie_id value to string")
-		log.Printf("Неудалось правильно преобразовать cookie_id из контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Middleware Map Error", http.StatusInternalServerError, err))
-		return
-	}
-
-	cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
+	customer_id, err := GetCustomerIdFromDB(ctx)
 	if err != nil {
-		log.Printf("Неудалось найти Cookie в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+		log.Printf("Ошибка при работе с Cookie | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
-	customer_data, err := GetOneFromDB[Customers]("customer_id = ?", cookie_struct.CustomerId, &Customers{})
+
+	
+	customer_data, err := GetOneFromDB[Customers]("customer_id = ?", customer_id, &Customers{})
 	if err != nil {
 		log.Printf("Неудалось найти Customer в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)

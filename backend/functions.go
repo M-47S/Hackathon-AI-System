@@ -6,12 +6,13 @@ import (
 	"os/exec"
 	"strconv"
 	"time"
-
+	"errors"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/gin-gonic/gin"
 )
 
 // При помощи GORM создаем или проверяем что таблицы есть через AutoMigrate
@@ -91,6 +92,31 @@ func GetOneFromDB[T any](where_query string, where_value string, table interface
 		Where(where_query, where_value).
 		Find(&result).Error
 	return result, err
+}
+
+func GetCustomerIdFromDB(ctx *gin.Context) (string, error){
+	val, exists := ctx.Get(CookieName)
+	if !exists {
+		err := errors.New("Cookie_id wasn't exist in context map")
+		log.Printf("Неудалось найти cookie_id в хранилище контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		return "", err
+	}
+	cookie_id, ok := val.(string)
+
+	if !ok {
+		err := errors.New("Can't cast cookie_id value to string")
+		log.Printf("Неудалось правильно преобразовать cookie_id из контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		return "", err
+	}
+
+	cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
+	if err != nil {
+		log.Printf("Неудалось найти Cookie в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+		return "" , err
+	}
+	return  cookie_struct.CustomerId, nil
+
 }
 
 // Данная функция необходима для создания Корректного запроса к
