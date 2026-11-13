@@ -20,10 +20,6 @@ tenacity==9.2.1
 # --- Structured logging (request_id, JSON in prod) ---
 structlog==26.1.0
 
-# --- GigaChat official SDK (use if provider = GigaChat) ---
-gigachat==0.2.4
-
-
 # --- JSON schema → Pydantic (если LLM возвращает JSON, а не SDK structured output) ---
 jsonschema==4.26.0
 
@@ -34,9 +30,6 @@ sentence-transformers==6.2.0
 llama-index-core==0.14.25
 llama-index-embeddings-huggingface==0.8.0
 llama-index-vector-stores-faiss==0.7.0
-
-#  FastEmbed generates embeddings locally, so you don't need a separate embedding API
-qdrant-client[fastembed]==1.20.0
 
 # ============================================================
 # AI Service — dev & test dependencies
