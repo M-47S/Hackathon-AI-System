@@ -39,7 +39,7 @@ type Messages struct {
 
 type Profiles struct {
 	SessionId string `gorm:"type:uuid;primaryKey" json:"session_id"`
-	ObjectCount int `gorm:"type:;int;not null" json:"object_count"`
+	ObjectCount int `gorm:"type:int;not null" json:"object_count"`
 	Problem string `gorm:"type:text;not null" json:"problem"`
 	BusinessType string `gorm:"type:text;not null" json:"business_type"`
 	MeteringMethod string `gorm:"type:text" json:"metering_method"`
