@@ -189,6 +189,8 @@ func FillErrorForm(title string, status int, err error) (interface{}){
 	error_struct.Type = "about:blank"
 	error_struct.Title = title
 	error_struct.Status = status
-	error_struct.Detail = err.Error()
+	if err != nil{
+		error_struct.Detail = err.Error()
+	}
     return  error_struct
 }

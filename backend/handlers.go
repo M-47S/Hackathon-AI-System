@@ -1,11 +1,12 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
-	"time"
 	"os"
 	"strconv"
+	"time"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -219,17 +220,11 @@ func LoginCustomerManual(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
-
-	salt_size, _ := strconv.Atoi(os.Getenv("SALT_SIZE"))
-	bytes, err := bcrypt.GenerateFromPassword([]byte(cust_data.Password), salt_size)
+	err = bcrypt.CompareHashAndPassword([]byte(customer_record.Password), []byte(cust_data.Password)) 
 	if err != nil {
-		log.Printf("Неудалось захэшировать пароль | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Invalid password hashing", http.StatusInternalServerError, err))
-		return
-	}
-	if customer_record.Password != string(bytes){
-		log.Printf("Данные не совпадают | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
-		ctx.JSON(http.StatusUnauthorized, FillErrorForm("Invalid Customer Data", http.StatusUnauthorized, err))
+		log.Printf("Неверный пароль | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		err = errors.New("Invalid login or password")
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
 
