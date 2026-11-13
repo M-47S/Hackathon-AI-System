@@ -1,28 +1,36 @@
 package main
 
 import (
+	"net/http"
 	"time"
-
+	"errors"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-
-
 //Проверяем есть ли Cookie для необходимых эндпоинтов
 func ReadCookieMiddleWare() gin.HandlerFunc {
 	return func(ctx *gin.Context){
-		//Дописать логику првоерки Cookie (Поиск пользователя в БД по куки)
-		id, err := ctx.Cookie(CookieName)
-		if (err != nil || id == ""){
-			ctx.JSON(401, FillErrorForm("User Anauthorized (No Cookie)", 401, err))
+		cookie_id, err := ctx.Cookie(CookieName)
+		if (err != nil || cookie_id == ""){
+			ctx.AbortWithStatusJSON(401, FillErrorForm("User Anauthorized (No Cookie)", 401, err))
 			return 
 		} 
-		ctx.Set("guest_id", id)
+		cookie_struct, err := GetOneFromDB[Cookies](cookie_id, &Cookies{})
+		if err != nil {
+			ctx.AbortWithStatusJSON(http.StatusInternalServerError, FillErrorForm("User Anauthorized (DB Error)", http.StatusInternalServerError, err))
+			return 
+		}
+
+		if cookie_struct.ExpiresAt.Before(time.Now()) {
+			err = errors.New("Session expired")
+			ctx.AbortWithStatusJSON(401, FillErrorForm("User Anauthorized (DB Error)", 401, err))
+			return 
+		}
+		ctx.Set(CookieName, cookie_id)
 		ctx.Next()
 	}
 }
-
 
 func SetupRoutes() *gin.Engine {
 	// Для работы с БД будет исользоваться GORM из-за удобства автоматически создавать таблицы и записывать туда данные создавая их из type struct
