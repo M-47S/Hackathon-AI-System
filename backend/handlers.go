@@ -151,7 +151,7 @@ func RegisterCustomer(ctx *gin.Context){
 			},
 		},
 	}
-	if err := globalDBCon.Create(newCustomer).Error; err != nil {
+	if err := globalDBCon.Create(&newCustomer).Error; err != nil {
 		log.Printf("Неудалось создать запись о Пользователе в БД | err: %s", err.Error())
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
@@ -251,7 +251,7 @@ func LoginCustomerManual(ctx *gin.Context){
 		ExpiresAt: expires_at,
 	}
 		
-	if err := globalDBCon.Create(cookie_record).Error; err != nil {
+	if err := globalDBCon.Create(&cookie_record).Error; err != nil {
 		log.Printf("Неудалось создать запись о Пользователе в БД | err: %s", err.Error())
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return

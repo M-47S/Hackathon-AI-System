@@ -53,11 +53,11 @@ func SetupRoutes() *gin.Engine {
 		api.POST("/logout", LogoutCustomer)
 		api.POST("/register", RegisterCustomer)
 		api.POST("/login/manual", LoginCustomerManual)
-		
+
 		// Группа с проверка на наличие Cookie
 		cookieGroup := api.Group("", ReadCookieMiddleWare())
 		{
-			cookieGroup.POST("/login/cookie", LoginCustomerCookie)
+			cookieGroup.GET("/login/cookie", LoginCustomerCookie)
 			cookieGroup.POST("/sessions", CreateSessionHandler)
 			cookieGroup.GET("/sessions/:session_id/messages", ChatHistoryHandler)
 			cookieGroup.POST("/chat", UserMessageHandler)
