@@ -4,11 +4,11 @@
     align-items: center;
     height: 100vh;
     width: 100vw;
-    background-color: #e81a0c; /* Красный фон */
+    background-color:  #36393E; 
 }
 
 .auth-form {
-    background-color: #0a105e; /* Синий фон карточки */
+    background-color: #0a105e;
     padding: 40px;
     border-radius: 20px;
     width: 100%;
@@ -16,7 +16,6 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
 .auth-form h2 {
@@ -53,7 +52,6 @@
     font-size: 1rem;
 }
 
-/* Стили для чекбокса админа */
 .auth-checkbox {
     display: flex;
     align-items: center;

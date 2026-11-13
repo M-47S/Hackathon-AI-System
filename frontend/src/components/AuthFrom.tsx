@@ -38,7 +38,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
     }
 
     return (
-        <div className="auth-from-container">
+        <div className="auth-container">
             <form className="auth-form" onSubmit={handleSubmit}>
                 <h2>{isLoginMode ? 'Вход' : 'Регистрация'} в ENERGYTOOL AI</h2>
 
