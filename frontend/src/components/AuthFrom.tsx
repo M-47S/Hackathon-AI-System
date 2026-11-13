@@ -26,8 +26,13 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
         setIsLoading(true);
 
         try {
-            const credentials = { login: loginStr, password, is_admin: isAdmin};
-            const user = isLoginMode ? await login(credentials) : await register(credentials);
+            let user: UserProfile;
+
+            if (isLoginMode) {
+                user = await login({ login: loginStr, password});
+            } else{
+                user = await register({ login: loginStr, password, is_admin: isAdmin});
+            }
 
             onAuthSuccess(user);
         } catch (err: any) {

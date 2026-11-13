@@ -1,14 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { Chat } from "./components/Chat";
 import { AuthForm } from "./components/AuthFrom";
 import { AdminPanel } from "./components/AdminPanel";
-import type { UserProfile } from "./api/auth";
+import { checkAuth, type UserProfile } from "./api/auth";
 import './App.css';
 
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    async function initAuth(){
+      try {
+        const userData = await checkAuth();
+        setUser(userData);
+      } catch (err) {
+        setUser(null);
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    }
+    initAuth();
+  }, []);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="auth-container" style={{ color: 'white', fontSize: '1.5rem' }}>
+        Загрузка
+      </div>
+    );
+  }
 
   if (!user) {
     return <AuthForm onAuthSuccess={setUser} />;
