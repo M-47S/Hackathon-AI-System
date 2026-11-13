@@ -1,0 +1,173 @@
+[
+  {
+    "document_id": "00-product-map",
+    "filename": "00-product-map.md",
+    "relative_path": "00-product-map.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 2871,
+    "sha256": "0403e368478b92b6c4e2712fea0bb590f0057667f60df08a09afc20c284abfd4",
+    "extra": {}
+  },
+  {
+    "document_id": "01-numbers-and-indicators",
+    "filename": "01-numbers-and-indicators.md",
+    "relative_path": "01-numbers-and-indicators.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 12684,
+    "sha256": "e36b1c95d04fe9eda41a4c0b954ca3b93988410d1b175ba804efcff478cdd18f",
+    "extra": {}
+  },
+  {
+    "document_id": "02-product-scope-and-limits",
+    "filename": "02-product-scope-and-limits.md",
+    "relative_path": "02-product-scope-and-limits.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 8189,
+    "sha256": "c2a8e9b0a9b0329370f995e273364aec130870426f2f493987bbbae14c7b21c2",
+    "extra": {}
+  },
+  {
+    "document_id": "03-calculation-and-requests",
+    "filename": "03-calculation-and-requests.md",
+    "relative_path": "03-calculation-and-requests.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 6341,
+    "sha256": "f9b4e7163dfed98f5f4254bb22daa4da7a8b03b474877e2c5e31b11cfa841b1c",
+    "extra": {}
+  },
+  {
+    "document_id": "10-market",
+    "filename": "10-market.md",
+    "relative_path": "10-market.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 5628,
+    "sha256": "8ade512c7fdd1ba88607bde1ee4252804f34f7ce6f7b40f87161a08bab589c21",
+    "extra": {}
+  },
+  {
+    "document_id": "11-price-categories",
+    "filename": "11-price-categories.md",
+    "relative_path": "11-price-categories.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 14014,
+    "sha256": "4afcba33662714414e26c2d4e39a0696f46fb659be26ba9aa9c15adef60653ca",
+    "extra": {}
+  },
+  {
+    "document_id": "12-power-thresholds",
+    "filename": "12-power-thresholds.md",
+    "relative_path": "12-power-thresholds.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 7204,
+    "sha256": "b83df1d886eacb55c81085ae4d8cc065c3613cab1b91cdfdf8916560fdca5a29",
+    "extra": {}
+  },
+  {
+    "document_id": "13-metering",
+    "filename": "13-metering.md",
+    "relative_path": "13-metering.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 3057,
+    "sha256": "165980c08f5564c483fd24cc1952d6f441aae70f4f3c1139224c5c6245d7de51",
+    "extra": {}
+  },
+  {
+    "document_id": "14-tariffs",
+    "filename": "14-tariffs.md",
+    "relative_path": "14-tariffs.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 4583,
+    "sha256": "dde46478a217cc75dc997b1ec7876958196da882a2d82c8e68017b997c40fb0c",
+    "extra": {}
+  },
+  {
+    "document_id": "15-microgeneration",
+    "filename": "15-microgeneration.md",
+    "relative_path": "15-microgeneration.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 4325,
+    "sha256": "7616e87ef6b4a3b583bdd23d21576fb65c4a40ed46c25704bfc051c0380136cd",
+    "extra": {}
+  },
+  {
+    "document_id": "16-regulation",
+    "filename": "16-regulation.md",
+    "relative_path": "16-regulation.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 3244,
+    "sha256": "fb0678dd3a2b9bbd8e1fa73d09cfd9339aa263e9ddc298d63ef9619696a99fed",
+    "extra": {}
+  },
+  {
+    "document_id": "17-faq",
+    "filename": "17-faq.md",
+    "relative_path": "17-faq.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 4789,
+    "sha256": "3b6d4ef6a24c5cbcf71e2eeab33e2ca0b3612ea4548034efc9151f6d9042b8a4",
+    "extra": {}
+  },
+  {
+    "document_id": "20-portfolio",
+    "filename": "20-portfolio.md",
+    "relative_path": "20-portfolio.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 14465,
+    "sha256": "a66c536a424f82d64abc3540d59acf27ed65dd894d9a356b521484fd872bd6d3",
+    "extra": {}
+  },
+  {
+    "document_id": "21-orem",
+    "filename": "21-orem.md",
+    "relative_path": "21-orem.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 25702,
+    "sha256": "c19d8e6196af8825c03a2c464577a4545e558d4446d638c20d694422bdb08c5b",
+    "extra": {}
+  },
+  {
+    "document_id": "22-askue",
+    "filename": "22-askue.md",
+    "relative_path": "22-askue.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 22122,
+    "sha256": "455f0f3f50f9721c14306eb455ea2ed53cdf983d5609d9202132418ad9e47503",
+    "extra": {}
+  },
+  {
+    "document_id": "23-solar",
+    "filename": "23-solar.md",
+    "relative_path": "23-solar.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 31547,
+    "sha256": "b55d7123e8ec80b44659b92533a9106c9a573c9e970e20f6b17a3baa6c0798af",
+    "extra": {}
+  },
+  {
+    "document_id": "24-losses",
+    "filename": "24-losses.md",
+    "relative_path": "24-losses.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 14181,
+    "sha256": "4e36983924650cfcfd88abfc6a0c29131b304087587b54cc39585d67bb5b7541",
+    "extra": {}
+  },
+  {
+    "document_id": "25-meter-reading",
+    "filename": "25-meter-reading.md",
+    "relative_path": "25-meter-reading.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 19109,
+    "sha256": "4dac830d81b94e0dc5f2e73d3872ac1fd16727b272e4cb918c7f14a9df0c3ccb",
+    "extra": {}
+  },
+  {
+    "document_id": "26-general",
+    "filename": "26-general.md",
+    "relative_path": "26-general.md",
+    "mime_type": "text/markdown",
+    "size_bytes": 14021,
+    "sha256": "b7b3ba0979e5fafa9dfdde782367603906d380e31ccb2bcb0efe4615c6a829e9",
+    "extra": {}
+  }
+]
