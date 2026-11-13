@@ -17,7 +17,7 @@ import (
 // При помощи GORM создаем или проверяем что таблицы есть через AutoMigrate
 // Структуру каждой таблицы можно посмотреть в файле tables.go
 func InitTables() {
-	err := globalDBCon.AutoMigrate(&Session{}, &Messages{}, &Leads{}, &Profiles{})
+	err := globalDBCon.AutoMigrate(&Customers{}, &Cookies{}, &Session{}, &Messages{}, &Leads{}, &Profiles{})
 	if err != nil {
 		log.Fatal("Критическая ошибка: Неудалось создать таблицы")
 	}
