@@ -1,0 +1,111 @@
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    background-color: #e81a0c; /* Красный фон */
+}
+
+.auth-form {
+    background-color: #0a105e; /* Синий фон карточки */
+    padding: 40px;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.auth-form h2 {
+    color: white;
+    text-align: center;
+    margin: 0 0 10px 0;
+}
+
+.auth-error {
+    background-color: rgba(232, 26, 12, 0.2);
+    color: #ff9999;
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.auth-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.auth-field label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.auth-field input {
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+}
+
+/* Стили для чекбокса админа */
+.auth-checkbox {
+    display: flex;
+    align-items: center;
+    margin: 5px 0;
+}
+
+.auth-checkbox label {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.auth-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.auth-form button {
+    padding: 14px;
+    border-radius: 8px;
+    border: none;
+    background-color: #e81a0c;
+    color: white;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: opacity 0.2s;
+}
+
+.auth-form button:hover {
+    opacity: 0.8;
+}
+
+.auth-form button:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+}
+
+.auth-switch {
+    color: rgba(255, 255, 255, 0.6);
+    text-align: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-top: 10px;
+    transition: color 0.2s;
+}
+
+.auth-switch:hover {
+    color: white;
+}
