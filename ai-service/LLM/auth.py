@@ -28,7 +28,7 @@ class TokenProvider:
         return None
 
     def invalidate(self) -> None:
-        pass
+        return False
 
 
 class StaticTokenProvider(TokenProvider):

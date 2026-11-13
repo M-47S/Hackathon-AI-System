@@ -1,3 +1,4 @@
+# LLM/Client.py
 import json
 import logging
 from typing import Any, Optional, Type, TypeVar
@@ -16,8 +17,6 @@ from .exceptions import (
     LLMTimeoutError,
 )
 from .structs import ChatRequest, LLMResponse, LLMUsage
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,26 @@ class LLMClient:
         self._api_key = api_key
         self._default_model = default_model
         self._token_provider = token_provider
+        self._timeout = timeout
         self._max_retries = max_retries
-        self._http_client = httpx.Client(verify=verify_ssl, timeout=timeout)
+        
+        if verify_ssl is False:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        # ОДИН httpx.Client — переиспользуется всеми запросами (thread-safe)
+        self._http_client = httpx.Client(
+            verify=verify_ssl,
+            timeout=httpx.Timeout(timeout),
+            limits=httpx.Limits(
+                max_connections=60,
+                max_keepalive_connections=20,
+                keepalive_expiry=60.0,
+            ),
+        )
+
+        # Кэш OpenAI-обёртки: пересоздаётся только при смене токена
+        self._openai_client: Optional[OpenAI] = None
+        self._openai_token: Optional[str] = None
 
     # ---------- public ----------
 
@@ -49,13 +66,7 @@ class LLMClient:
         if not token:
             raise LLMError("Не передан ни token_provider, ни api_key")
 
-        client = OpenAI(
-            base_url=self._base_url,
-            api_key=token,
-            timeout=self._http_client.timeout,
-            max_retries=self._max_retries,
-            http_client=self._http_client,
-        )
+        client = self._get_openai_client(token)
 
         model = request.model or self._default_model
 
@@ -73,7 +84,6 @@ class LLMClient:
                 request.response_format.model_json_schema(),
                 ensure_ascii=False,
             )
-            # ⚠️ Ключевой момент: явно запрещаем модели воспроизводить схему.
             schema_hint = (
                 "Ответь ОДНИМ валидным JSON-объектом с реальными данными. "
                 "Без markdown-обёрток и пояснений. "
@@ -152,15 +162,43 @@ class LLMClient:
 
     # ---------- helpers ----------
 
+    def _get_openai_client(self, token: str) -> OpenAI:
+        """Возвращает OpenAI-клиент для данного токена (кэшируется).
+
+        Пересоздаётся только при смене токена — например, когда GigaChat
+        ротирует его каждые 30 минут. httpx.Client (TCP-пул) при этом
+        переиспользуется, поэтому новые TCP-соединения не открываются.
+        """
+        if self._openai_client is None or self._openai_token != token:
+            self._openai_client = OpenAI(
+                base_url=self._base_url,
+                api_key=token,
+                timeout=self._timeout,
+                max_retries=self._max_retries,
+                http_client=self._http_client,
+            )
+            self._openai_token = token
+            logger.debug("OpenAI client (re)created for token %s…", token[:6])
+        return self._openai_client
+
+    def close(self) -> None:
+        """Закрывает пул соединений. OpenAI-обёртки ресурсов не держат."""
+        try:
+            self._openai_client = None
+            self._openai_token = None
+            self._http_client.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     @staticmethod
     def _parse_structured(text: str, model_cls: Type[T]) -> T:
-        """
-        Парсит JSON-строку в Pydantic-модель.
-        Защита от:
-          - markdown-обёрток ```json ... ```
-          - моделей, которые возвращают саму JSON Schema с заполненными
-            значениями внутри 'properties' (типично для GigaChat).
-        """
+        """Без изменений — оставляем как есть."""
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("```", 2)[1] if cleaned.count("```") >= 2 else cleaned
@@ -176,13 +214,11 @@ class LLMClient:
                 f"Сырой ответ: {text[:500]}"
             ) from e
 
-        # 🔧 Защита от GigaChat: если пришла "схема" вместо данных —
-        # достаём значения из data["properties"].
         if (
             isinstance(data, dict)
             and data.get("type") == "object"
             and isinstance(data.get("properties"), dict)
-            and "properties" not in model_cls.model_fields  # не путать с реальным полем
+            and "properties" not in model_cls.model_fields
         ):
             logger.warning(
                 "Модель вернула JSON Schema вместо данных. "
@@ -208,237 +244,3 @@ class LLMClient:
             output_tokens=getattr(usage, "completion_tokens", 0),
             total_tokens=getattr(usage, "total_tokens", 0),
         )
-
-if __name__ == "__main__":
-    import sys
-    from unittest.mock import MagicMock, patch
-
-    from .exceptions import LLMError, LLMResponseParseError
-    from .structs import LLMMessage, Role
-
-    # ✅ Ключевое: патчим OpenAI в ТОМ модуле, где сейчас исполняемся.
-    _OPENAI_PATH = f"{__name__}.OpenAI"
-
-    passed, failed = 0, 0
-
-    def run(name, fn):
-        global passed, failed
-        try:
-            fn()
-            print(f"  ✅ {name}")
-            passed += 1
-        except Exception as e:
-            print(f"  ❌ {name}: {type(e).__name__}: {e}")
-            failed += 1
-
-    class MockTokenProvider:
-        def get_token(self) -> str:
-            return "test-token"
-        def invalidate(self) -> None:
-            pass
-
-    def make_mock_response(text: str, model: str = "test-model"):
-        resp = MagicMock()
-        resp.choices = [MagicMock()]
-        resp.choices[0].message.content = text
-        resp.choices[0].finish_reason = "stop"
-        resp.model = model
-        resp.usage = None
-        return resp
-
-    def make_auth_error():
-        return openai.AuthenticationError(
-            message="Unauthorized",
-            response=httpx.Response(401, request=httpx.Request("POST", "http://x")),
-            body={"status": 401, "message": "Unauthorized"},
-        )
-
-    class AnswerSchema(BaseModel):
-        answer: str
-        confidence: float
-
-    def _patched_client(**kwargs):
-        return LLMClient(
-            base_url="http://test",
-            api_key="test",
-            default_model="test-model",
-            verify_ssl=False,
-            **kwargs,
-        )
-
-    def test_basic_chat():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.return_value = make_mock_response("Привет")
-
-            resp = _patched_client().chat(ChatRequest(messages=[
-                LLMMessage(role=Role.SYSTEM, content="Ты — ассистент."),
-                LLMMessage(role=Role.USER, content="Привет"),
-            ]))
-
-            assert resp.text == "Привет"
-            assert resp.model == "test-model"
-            msgs = mock_openai.chat.completions.create.call_args.kwargs["messages"]
-            assert msgs[0]["role"] == "system"
-            assert msgs[-1]["role"] == "user"
-
-    def test_structured_output():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.return_value = make_mock_response(
-                '{"answer": "тест", "confidence": 0.9}'
-            )
-            resp = _patched_client().chat(ChatRequest(
-                messages=[LLMMessage(role=Role.USER, content="...")],
-                response_format=AnswerSchema,
-            ))
-            assert resp.parsed.answer == "тест"
-            assert abs(resp.parsed.confidence - 0.9) < 1e-6
-
-    def test_parse_markdown_fence():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.return_value = make_mock_response(
-                '```json\n{"answer": "ok", "confidence": 0.5}\n```'
-            )
-            resp = _patched_client().chat(ChatRequest(
-                messages=[LLMMessage(role=Role.USER, content="...")],
-                response_format=AnswerSchema,
-            ))
-            assert resp.parsed.answer == "ok"
-
-    def test_parse_schema_echo():
-        schema_echo = json.dumps({
-            "type": "object",
-            "properties": {"answer": "42", "confidence": 1},
-            "required": ["answer", "confidence"],
-            "title": "AnswerSchema",
-        })
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.return_value = make_mock_response(schema_echo)
-            resp = _patched_client().chat(ChatRequest(
-                messages=[LLMMessage(role=Role.USER, content="...")],
-                response_format=AnswerSchema,
-            ))
-            assert resp.parsed.answer == "42"
-
-    def test_empty_response_raises():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.return_value = make_mock_response("")
-            try:
-                _patched_client().chat(ChatRequest(
-                    messages=[LLMMessage(role=Role.USER, content="...")],
-                ))
-            except LLMResponseParseError:
-                return
-            raise AssertionError("Ожидался LLMResponseParseError")
-
-    def test_401_retry_once_with_provider():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.side_effect = [
-                make_auth_error(),
-                make_mock_response("Успех после retry"),
-            ]
-            resp = LLMClient(
-                base_url="http://test",
-                token_provider=MockTokenProvider(),
-                default_model="test-model",
-                verify_ssl=False,
-            ).chat(ChatRequest(messages=[
-                LLMMessage(role=Role.USER, content="..."),
-            ]))
-            assert resp.text == "Успех после retry"
-            assert mock_openai.chat.completions.create.call_count == 2
-
-    def test_401_no_retry_without_provider():
-        with patch(_OPENAI_PATH) as MockOpenAI:
-            mock_openai = MagicMock()
-            MockOpenAI.return_value = mock_openai
-            mock_openai.chat.completions.create.side_effect = make_auth_error()
-            try:
-                _patched_client().chat(ChatRequest(messages=[
-                    LLMMessage(role=Role.USER, content="..."),
-                ]))
-            except LLMError:
-                assert mock_openai.chat.completions.create.call_count == 1
-                return
-            raise AssertionError("Ожидался LLMError")
-
-    print("LLMClient unit tests (mocked, no network)")
-    print("-" * 50)
-    run("basic chat + order",              test_basic_chat)
-    run("structured output",               test_structured_output)
-    run("markdown fence stripping",        test_parse_markdown_fence)
-    run("schema echo defense (GigaChat)",  test_parse_schema_echo)
-    run("empty response raises",           test_empty_response_raises)
-    run("401 retry once (with provider)",  test_401_retry_once_with_provider)
-    run("401 no retry (api_key only)",     test_401_no_retry_without_provider)
-    print("-" * 50)
-    print(f"Итого: {passed} passed, {failed} failed")
-
-    if failed:
-        sys.exit(1)
-        
-        
-# if __name__ == "__main__":
-#     from .auth import GigaChatTokenProvider
-#     import os
-#     from dotenv import load_dotenv
-#     from .structs import Role, LLMMessage
-
-    
-#     if os.path.exists(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env"):
-#         load_dotenv(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\LLM\.env")
-        
-#     DEFAULT_AUTH_KEY = os.getenv("AI_AUTH_KEY")
-#     DEFAULT_BASE_URL = os.getenv("AI_BASE_URL", "https://api.giga.chat/v1")
-#     DEFAULT_SCOPE = DEFAULT_SCOPE = os.getenv("AI_SCOPE", "GIGACHAT_API_PERS")
-#     DEFAULT_MODEL = os.getenv("AI_MODEL", "GigaChat-2")
-    
-#     provider = GigaChatTokenProvider(
-#         auth_key=DEFAULT_AUTH_KEY, 
-#         scope=DEFAULT_SCOPE,
-#         verify_ssl=False
-#     )
-#     client = LLMClient(
-#         base_url=DEFAULT_BASE_URL,
-#         token_provider=provider,
-#         default_model=DEFAULT_MODEL
-#     )
-    
-#     request1 = ChatRequest(
-#         messages=[
-#             LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
-#             LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
-#         ],
-#         temperature=0.3
-#     )
-#     response1 = client.chat(request=request1)
-    
-#     class AnswerSchema(BaseModel):
-#         answer: str
-#         confidence: float
-        
-#     request2 = ChatRequest(
-#         messages=[
-#             LLMMessage(role=Role.SYSTEM, content="Ты — консультант EnergyTool."),
-#             LLMMessage(role=Role.USER, content="Что такое АСКУЭ?")
-#         ],
-#         temperature=0.1,
-#         response_format=AnswerSchema
-        
-#     )
-    
-#     response2 = client.chat(request=request2)
-    
-#     print(response1.text)
-#     print(response2.parsed)

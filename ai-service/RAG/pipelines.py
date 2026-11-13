@@ -20,10 +20,21 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Tuple, Union, Protocol, runtime_checkable
-import re
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Union,
+    Any,
+    runtime_checkable,
+)
 
 from .structs import (
     Chunk,
@@ -88,13 +99,50 @@ class RerankerLike(Protocol):
         top_n: int = 5,
     ) -> List[Tuple[int, float]]: ...
 
+@runtime_checkable
+class EmbedderLike(Protocol):
+    """
+    Duck-type контракт для эмбеддеров'.
+    Ему соответствует EmbeddingWrapper.
+    """
+    def _get_query_embedding(
+        self, 
+        query: str
+    ) -> Embedding: ...
+    
+    def _get_query_embedding_batch(
+            self, 
+            queries: List[str]
+    ) -> List[Embedding]: ...
+    
+    def _get_text_embedding(
+        self, 
+        text: str
+    ) -> Embedding: ...
+    
+    def _get_text_embedding_batch(
+        self, 
+        texts: List[str]
+    ) -> List[Embedding]: ...
+
+@runtime_checkable
+class ChunkerLike(Protocol):
+    """Duck-type контракт для чанкеров. 
+    Соответствует MarkdownChunker.
+    """
+    def chunk(
+        self,
+        markdown_text: str,
+        document_id: str,
+        start_id: int = 0,
+    ) -> Tuple[List[Chunk], List[int], int]: ...
+
+    
 
 _LINK_RE = re.compile(r"\[[^\]]+\]\([^)]+\)")
 
 # Подсказки «продуктового» запроса — для них поднимаем лимит на документ,
 # чтобы целевой документ был представлен 3-4 чанками (важно для Small-to-Big).
-
-
 _PRODUCT_HINTS = (
     "аскуэ", "оптов", "солнечн", "потер", "распознаван",
     "фото", "платформ", "учёт", "учет", "счётчик", "счетчик",
@@ -130,8 +178,9 @@ def pipeline_search(
     reranker: Optional[RerankerLike] = None,
     query_text: Optional[str] = None,
     rerank_oversample: int = 5,
-    max_per_document: Optional[int] = None,   # ← None = авто (adaptive)
-    filter_toc: bool = True,                  # ← NEW: отсекать оглавления
+    max_per_document: Optional[int] = None,
+    filter_toc: bool = True,
+    exclude_documents: Optional[set] = None,   # ← NEW из Grader
 ) -> List[RetrievedChunk]:
     """
     Возвращает top_k релевантных чанков.
@@ -157,7 +206,8 @@ def pipeline_search(
                            None — авто (2 для общих, 4 для продуктовых).
                            0 — отключить диверсификацию.
         filter_toc:        отсекать чанки-оглавления (markdown-ссылки).
-                           Работает всегда, независимо от реранкера.
+        exclude_documents: set document_id, которые нужно исключить
+                           из выдачи (для шумных обзоров вроде «20-portfolio»).
     """
     if top_k <= 0:
         return []
@@ -176,8 +226,7 @@ def pipeline_search(
     # 1. Сколько запросить у FAISS
     if use_reranker:
         search_k = top_k * max(1, rerank_oversample)
-    elif chunk_filter is not None or filter_toc:
-        # Если применяем пост-фильтры, берём с запасом
+    elif chunk_filter is not None or filter_toc or exclude_documents:
         search_k = top_k * max(1, oversample)
     else:
         search_k = top_k
@@ -208,6 +257,12 @@ def pipeline_search(
     if filter_toc:
         ordered_chunks = [c for c in ordered_chunks if not _is_toc_like(c)]
 
+    # 4c. Blacklist документов (шумные обзоры)
+    if exclude_documents:
+        ordered_chunks = [
+            c for c in ordered_chunks if c.document_id not in exclude_documents
+        ]
+
     if not ordered_chunks:
         return []
 
@@ -218,16 +273,31 @@ def pipeline_search(
         min_required=0 if use_reranker else top_k,
     )
 
-    # 6. Reranker (soft-ranking)
+    # 6. Reranker (soft-ranking) с graceful fallback
     if use_reranker:
-        reranked = reranker.rerank(
-            query=query_text,
-            documents=[c.text for c in ordered_chunks],
-            top_n=top_k,
-        )
+        reranked = []
+        try:
+            reranked = reranker.rerank(
+                query=query_text,
+                documents=[c.text for c in ordered_chunks],
+                top_n=top_k,
+            )
+        except Exception as e:
+            logger.warning("Reranker упал (%s), fallback на FAISS scores", e)
+
+        if reranked:
+            # Защита от мусорных индексов от реранкера
+            return [
+                RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
+                for idx, score in reranked
+                if 0 <= idx < len(ordered_chunks)
+            ]
+
+        # FALLBACK: FAISS scores
+        hit_score = {h.chunk_id: h.score for h in hits}
         return [
-            RetrievedChunk(chunk=ordered_chunks[idx], score=float(score), reranked=True)
-            for idx, score in reranked
+            RetrievedChunk(chunk=c, score=hit_score[c.chunk_id], reranked=False)
+            for c in ordered_chunks[:top_k]
         ]
 
     # 7. Fallback: score по chunk_id
@@ -253,6 +323,7 @@ def pipeline_search_with_context(
     rerank_oversample: int = 5,
     max_per_document: Optional[int] = None,
     filter_toc: bool = True,
+    exclude_documents: Optional[set] = None, 
 ) -> List[ChunkContext]:
     """
     То же, что pipeline_search, но возвращает ChunkContext с поднятым
@@ -269,6 +340,7 @@ def pipeline_search_with_context(
         rerank_oversample=rerank_oversample,
         max_per_document=max_per_document,
         filter_toc=filter_toc,
+        exclude_documents=exclude_documents,
     )
     return [
         doc_store.get_chunk_with_context(
@@ -279,22 +351,25 @@ def pipeline_search_with_context(
 
 
 def pipeline_search_by_text(
-    embedder,
+    embedder: EmbedderLike,
     doc_store: DocumentStore,
     vec_store: VectorStore,
     query_text: str,
     query_instruction: Optional[str] = DEFAULT_QUERY_INSTRUCTION,
+    rerank_query_text: Optional[str] = None,   # ← NEW из Grader
     **search_kwargs,
 ) -> List[RetrievedChunk]:
     """
-    Высокоуровневая обёртка над pipeline_search:
-      1) формирует обогащённый текст запроса (instruction + query_text),
-      2) эмбеддит его,
-      3) передаёт ЧИСТЫЙ query_text в реранкер и adaptive max_per_document.
+    Высокоуровневая обёртка над pipeline_search.
 
-    Это и есть Instruction Prefix technique: инструкция даёт модели доменный
-    контекст («это поиск по энергетике»), а чистый текст запроса идёт в
-    cross-encoder реранкер, который обучен именно на «query + document».
+    Разделение запросов:
+      - эмбеддинг:   instruction + query_text  (богатый контекст для bge-m3)
+      - реранкер:    rerank_query_text, если задан, иначе query_text
+                     (чистая формулировка пользователя для cross-encoder)
+
+    Разделение нужно, когда query_text — «расширенный» LLM-запрос
+    (с раскрытыми аббревиатурами), а реранкер лучше работает
+    с естественной формулировкой.
     """
     text_for_embedding = (
         f"{query_instruction}{query_text}" if query_instruction else query_text
@@ -304,17 +379,18 @@ def pipeline_search_by_text(
         doc_store=doc_store,
         vec_store=vec_store,
         query=query_embedding,
-        query_text=query_text,
+        query_text=rerank_query_text if rerank_query_text is not None else query_text,
         **search_kwargs,
     )
 
 
 def pipeline_search_with_context_by_text(
-    embedder,
+    embedder: EmbedderLike,
     doc_store: DocumentStore,
     vec_store: VectorStore,
     query_text: str,
     query_instruction: Optional[str] = DEFAULT_QUERY_INSTRUCTION,
+    rerank_query_text: Optional[str] = None,   # ← NEW из Grader
     **search_kwargs,
 ) -> List[ChunkContext]:
     """Аналог pipeline_search_by_text для Small-to-Big (ChunkContext)."""
@@ -326,9 +402,9 @@ def pipeline_search_with_context_by_text(
         doc_store=doc_store,
         vec_store=vec_store,
         query=query_embedding,
-        query_text=query_text,
+        query_text=rerank_query_text if rerank_query_text is not None else query_text,
         **search_kwargs,
-    )    
+    )
 
 # ---------------------------------------------------------------------------
 # Fill
@@ -337,9 +413,9 @@ def pipeline_search_with_context_by_text(
 def pipeline_fill_store(
     doc_store: DocumentStore,
     vec_store: VectorStore,
-    embedder: "EmbeddingWrapper",
+    embedder: EmbedderLike,
     paths: Iterable[Union[Path, str]],
-    chunker: Optional["MarkdownChunker"] = None,
+    chunker: Optional[ChunkerLike] = None,
     chunk_size: int = 512,
     chunk_overlap: int = 50,
     read_encoding: str = "utf-8",
@@ -348,14 +424,8 @@ def pipeline_fill_store(
     Читает markdown-документы, режет на чанки, эмбеддит листья
     и складывает в DocumentStore + VectorStore.
 
-    chunk_id выделяются через doc_store.next_chunk_id — счётчик
-    живёт внутри DocumentStore и синхронизируется в add_chunks().
-    document_id разрешается через doc_store.resolve_document_id()
-    (при коллизии stem файла будет добавлен суффикс _1, _2, ...).
-
     Атомарность на уровне документа: commit в оба store'а только
-    после успешного embedding. Если embedding упал — ничего не
-    добавлено, счётчик не сдвинулся.
+    после успешного embedding.
     """
     if chunker is None:
         from .Chunking import MarkdownChunker
@@ -395,7 +465,6 @@ def pipeline_fill_store(
             )
 
         # --- 3. Чанкинг (в памяти) ---
-        # start_id берём из счётчика doc_store — это ключевой момент
         try:
             chunks, leaf_ids, _ = chunker.chunk(
                 markdown_text=text,
@@ -420,7 +489,7 @@ def pipeline_fill_store(
         # --- 4. Embedding (в памяти) ---
         try:
             embeddings = embedder._get_text_embedding_batch(
-                [c.embedding_text  for c in leaf_chunks]
+                [c.embedding_text for c in leaf_chunks]
             )
         except Exception as e:
             logger.exception("pipeline_fill_store: embedding error %s", path)
@@ -445,7 +514,7 @@ def pipeline_fill_store(
                 sha256=_sha256(path),
             )
             doc_store.add_document(document)
-            doc_store.add_chunks(chunks)             
+            doc_store.add_chunks(chunks)
             vec_store.add(
                 embedding=embeddings,
                 idx=[c.chunk_id for c in leaf_chunks],
@@ -501,26 +570,18 @@ def pipeline_load(
 def pipeline_build_from_directory(
     raw_dir: Union[Path, str],
     index_dir: Union[Path, str],
-    embedder: "EmbeddingWrapper",
-    chunker: Optional["MarkdownChunker"] = None,
+    embedder: EmbedderLike,
+    chunker: Optional[ChunkerLike] = None,
     pattern: str = "**/*.md",
     save: bool = True,
 ) -> FillStats:
     """
     Полная пересборка индекса из директории. Удобно для prepare_index.py.
-
-    Порядок:
-      1. Создаём пустые DocumentStore + VectorStore.
-      2. Определяем размерность через probe-эмбеддинг.
-      3. Прогоняем файлы через pipeline_fill_store.
-      4. Сохраняем в index_dir.
     """
     raw_dir = Path(raw_dir)
     index_dir = Path(index_dir)
 
     doc_store = DocumentStore(documents_root=raw_dir)
-
-    # Размерность определяем через probe-эмбеддинг.
     probe = embedder._get_text_embedding("probe")
     vec_store = VectorStore(dim=probe.size)
 
@@ -578,21 +639,11 @@ def _diversify_by_document(
     min_required: int = 0,
 ) -> List[Chunk]:
     """
-    Ограничивает число чанков с одного document_id, чтобы длинный
-    документ (например, 24-losses) не доминировал в выдаче.
+    Ограничивает число чанков с одного document_id.
 
     Двухуровневая логика:
-      1) «Ядро» — по max_per_document чанков с каждого документа,
-         в исходном порядке.
-      2) Если ядра меньше min_required — добираем из «переполнения»
-         в исходном порядке, чтобы не отдать пользователю меньше top_k.
-
-    Args:
-        chunks:         исходный список (порядок FAISS).
-        max_per_document: лимит на документ в «ядре».
-        min_required:   минимальное итоговое число чанков.
-                        Для no-reranker режима = top_k, чтобы не «недобрать».
-                        Для reranker режима = 0 (не мешаем реранкеру).
+      1) «Ядро» — по max_per_document чанков с каждого документа.
+      2) Если ядра меньше min_required — добираем из «переполнения».
     """
     if max_per_document <= 0 or not chunks:
         return chunks
@@ -616,33 +667,35 @@ def _diversify_by_document(
     return primary
 
 
-def _is_toc_like(chunk: Chunk, threshold: float = 0.5) -> bool:
+def _is_toc_like(chunk: Chunk, threshold: float = 0.65) -> bool:   # ← 0.5 → 0.65
     """
     True, если чанк — в основном markdown-ссылки (оглавление, навигация).
-    Такие чанки плохи для RAG: в них много ключевых слов, но нет
-    содержательного ответа (классический кейс — 20-portfolio).
+
+    Дополнительно: короткие чанки (<150 символов) НЕ считаются TOC — это
+    обычно короткие продуктовые секции (заголовок + 1-2 строки), которые
+    baseline-подход сохраняет в выдаче.
     """
     text = chunk.text
     if not text:
         return True
+    if len(text) < 150:                # ← NEW из Grader
+        return False
     link_chars = sum(len(m.group(0)) for m in _LINK_RE.finditer(text))
     return link_chars / len(text) > threshold
 
 
 def _adaptive_max_per_document(query_text: str, default: int = 2) -> int:
     """
-    Для «продуктовых» запросов лимит выше (4), чтобы целевой документ
-    был представлен несколькими чанками (нужно для Small-to-Big).
-    Для общих запросов — default (2), защита от доминирования
-    одного длинного документа (24-losses).
+    Для «продуктовых» запросов лимит 4, для остальных default (2).
     """
     q = (query_text or "").lower()
     if any(hint in q for hint in _PRODUCT_HINTS):
         return 4
-    return default# ---------------------------------------------------------------------------
+    return default
+
 
 # ---------------------------------------------------------------------------
-# Manual run / smoke test
+# Manual run / smoke test — оставляем как есть
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":

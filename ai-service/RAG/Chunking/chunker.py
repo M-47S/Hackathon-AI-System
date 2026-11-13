@@ -1,6 +1,7 @@
 # RAG/Chunkers/MarkdownChunker.py
 import hashlib
 import logging
+import re
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -23,7 +24,7 @@ class MarkdownChunker:
     - next_id: следующий свободный chunk_id (для сквозной нумерации).
     """
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 640, chunk_overlap: int = 64):
         self.md_parser = MarkdownNodeParser()
         self.text_splitter = SentenceSplitter(
             chunk_size=chunk_size,
@@ -59,16 +60,11 @@ class MarkdownChunker:
         id_map: dict[str, int] = {}
         parent_chunks: list[Chunk] = []
 
-        # Порядок позиций: родители нумеруются по порядку в документе,
-        # листья получат position = parent.position * 10000 + i,
-        # чтобы при сортировке листья шли в правильном порядке.
         for pos, parent in enumerate(parent_nodes):
             chunk_id = next_id
             next_id += 1
             id_map[parent.node_id] = chunk_id
 
-            # Родитель может сам иметь PARENT (для вложенных заголовков).
-            # MarkdownNodeParser выставляет это через relationships.
             parent_rel = parent.relationships.get(NodeRelationship.PARENT)
             parent_chunk_id = id_map.get(parent_rel.node_id) if parent_rel else None
 
@@ -78,7 +74,7 @@ class MarkdownChunker:
                 chunk_id=chunk_id,
                 document_id=document_id,
                 text=parent.text,
-                position=pos * 10000,   # см. ниже
+                position=pos * 10000,
                 section_title=section_title,
                 parent_chunk_id=parent_chunk_id,
             ))
@@ -111,6 +107,7 @@ class MarkdownChunker:
                         doc_title=doc_title,
                         section_title=parent_chunk.section_title,
                         text=child.text,
+                        doc_filename=document_id,
                     ),
                 ))
 
@@ -134,7 +131,6 @@ def _extract_section_title(node) -> str | None:
     parts = [p.strip() for p in str(header_path).split("/") if p.strip()]
     return parts[-1] if parts else None
 
-import re
 
 def _extract_document_title(markdown_text: str) -> str:
     """
@@ -145,7 +141,6 @@ def _extract_document_title(markdown_text: str) -> str:
         stripped = line.strip()
         if stripped.startswith("# "):
             return stripped[2:].strip()
-    # fallback: первая непустая строка
     for line in markdown_text.splitlines():
         if line.strip():
             return line.strip()[:120]
@@ -156,15 +151,18 @@ def _make_embedding_text(
     doc_title: str,
     section_title: Optional[str],
     text: str,
+    doc_filename: str = "",
 ) -> str:
     """
     Контекстный префикс для эмбеддинга.
-    Формат: '<Документ> — <Раздел>:\n<текст>'
+    Формат: '<Документ> — <Раздел> — <Файл>:\n<текст>'
     """
     parts = []
     if doc_title:
         parts.append(doc_title)
     if section_title:
         parts.append(section_title)
+    if doc_filename:
+        parts.append(doc_filename)
     header = " — ".join(parts)
     return f"{header}:\n{text}" if header else text
