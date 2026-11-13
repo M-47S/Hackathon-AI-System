@@ -16,7 +16,7 @@ func ReadCookieMiddleWare() gin.HandlerFunc {
 			ctx.AbortWithStatusJSON(401, FillErrorForm("User Anauthorized (No Cookie)", 401, err))
 			return 
 		} 
-		cookie_struct, err := GetOneFromDB[Cookies](cookie_id, &Cookies{})
+		cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
 		if err != nil {
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, FillErrorForm("User Anauthorized (DB Error)", http.StatusInternalServerError, err))
 			return 
@@ -33,29 +33,32 @@ func ReadCookieMiddleWare() gin.HandlerFunc {
 }
 
 func SetupRoutes() *gin.Engine {
-	// Для работы с БД будет исользоваться GORM из-за удобства автоматически создавать таблицы и записывать туда данные создавая их из type struct
 	gin.SetMode(gin.DebugMode)
 	r := gin.Default()
 	// Политика CORS чтобы доверять грубо говоря ip, пока что localhost можно поменять позже, пока не понятно где находится front в будущем
 	config := cors.Config {
 		AllowOrigins: []string{"http://localhost:3000"},
 		AllowMethods: []string{"POST", "GET", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-type", "Authorization"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 		MaxAge: 12 * time.Hour,
 	}
 	r.Use(cors.New(config))
-
+	
 
 	api := r.Group("/api")
 	{
 		// Публичные маршруты
-		api.GET("/hello", Hello)
+		api.GET("/health", HealthHandler)
+		api.POST("/logout", LogoutCustomer)
 		api.POST("/register", RegisterCustomer)
+		api.POST("/login/manual", LoginCustomerManual)
+		
 		// Группа с проверка на наличие Cookie
 		cookieGroup := api.Group("", ReadCookieMiddleWare())
 		{
-			api.POST("/sessions", CreateSessionHandler)
+			cookieGroup.POST("/login/cookie", LoginCustomerCookie)
+			cookieGroup.POST("/sessions", CreateSessionHandler)
 			cookieGroup.GET("/sessions/:session_id/messages", ChatHistoryHandler)
 			cookieGroup.POST("/chat", UserMessageHandler)
 			cookieGroup.POST("/leads", ManagerStatmentHandler)

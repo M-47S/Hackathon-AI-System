@@ -5,12 +5,11 @@ import "time"
 // Тут описаны таблицы а также связи между ними
 type Customers struct {
 	CustomerId string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"customer_id"`
-	Login string `gorm:"type:text;not null" json:"login"`
+	Login string `gorm:"type:text;not null;uniqueIndex" json:"login"`
 	Password string `gorm:"type:text;not null" json:"password"`
 	IsAdmin bool `gorm:"type:bool;not null" json:"password"`
 	Cookies []Cookies `gorm:"foreignKey:CustomerId;constraint:OnDelete:CASCADE;" json:"cookies"`
 	Sessions []Session `gorm:"foreignKey:CustomerId;constraint:OnDelete:CASCADE;" json:"sessions"`
-
 }
 
 type Cookies struct {

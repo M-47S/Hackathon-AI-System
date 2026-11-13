@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 	"os"
+	"errors"
 	"strconv"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,9 +15,8 @@ import (
 var CookieName = "cookie_id"
 
 
-func Hello(ctx *gin.Context){
-	wr := ctx.Writer
-	wr.Write([]byte("Hello"))
+func HealthHandler(ctx *gin.Context){
+	ctx.JSON(http.StatusOK, gin.H{"status" : "Server Alive"})
 }
 
 // Данный Handler возвращает uuid нового чата а также 
@@ -86,7 +86,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
 	_ = session_id
 	var respons UserHistoryForm
-	history, err := GetAllFromDB[FrontHistoryMessageForm](session_id, &Messages{})
+	history, err := GetAllFromDB[FrontHistoryMessageForm]("session_id = ?", session_id, &Messages{})
 	if err != nil {
 		log.Printf("Неудалось корректно найти историю в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
@@ -118,7 +118,7 @@ func ManagerStatmentHandler(ctx *gin.Context){
 
 // /api/register
 func RegisterCustomer(ctx *gin.Context){
-	var cust_data CustomerData
+	var cust_data CustomerRegisterData
 	if err := ctx.ShouldBindJSON(&cust_data); err != nil {
 		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
@@ -165,7 +165,102 @@ func RegisterCustomer(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, response)
 }
 
-// /api/login
-func LoginCustomer(ctx *gin.Context){
+// /api/logout
+func LogoutCustomer(ctx *gin.Context){
+	ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+	ctx.Status(http.StatusOK)
+}
+
+// /api/login/cookie
+func LoginCustomerCookie(ctx *gin.Context){
+	val, exists := ctx.Get(CookieName)
+	if !exists {
+		err := errors.New("Cookie_id wasn't exist in context map")
+		log.Printf("Неудалось найти cookie_id в хранилище контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Middleware Map Error", http.StatusInternalServerError, err))
+		return
+	}
+	cookie_id, ok := val.(string)
+
+	if !ok {
+		err := errors.New("Can't cast cookie_id value to string")
+		log.Printf("Неудалось правильно преобразовать cookie_id из контекста | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Middleware Map Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
+	if err != nil {
+		log.Printf("Неудалось найти Cookie в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+	customer_data, err := GetOneFromDB[Customers]("customer_id = ?", cookie_struct.CustomerId, &Customers{})
+	if err != nil {
+		log.Printf("Неудалось найти Customer в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	server_response := RegisterResponse{
+		Login: customer_data.Login,
+		IsAdmin: customer_data.IsAdmin,
+	}
+	ctx.JSON(http.StatusOK, server_response)
+}
+
+
+// /api/login/manual
+func LoginCustomerManual(ctx *gin.Context){
+	var cust_data CustomerLoginData
+	if err := ctx.ShouldBindJSON(&cust_data); err != nil {
+		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
+		return
+	}
+
+	customer_record, err := GetOneFromDB[Customers]("login = ?", cust_data.Login, &Customers{})
+	if err != nil {
+		log.Printf("Неудалось корректно найти пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	salt_size, _ := strconv.Atoi(os.Getenv("SALT_SIZE"))
+	bytes, err := bcrypt.GenerateFromPassword([]byte(cust_data.Password), salt_size)
+	if err != nil {
+		log.Printf("Неудалось захэшировать пароль | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Invalid password hashing", http.StatusInternalServerError, err))
+		return
+	}
+	if customer_record.Password != string(bytes){
+		log.Printf("Данные не совпадают | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusUnauthorized, FillErrorForm("Invalid Customer Data", http.StatusUnauthorized, err))
+		return
+	}
+
+	maxAge := 3600 * 24 * 7
+	expires_at := time.Now().Add(time.Duration(maxAge) * time.Second)
+	cookie_id := uuid.NewString();
+
+	cookie_record := Cookies{
+		CookieId: cookie_id,
+		CustomerId: customer_record.CustomerId,
+		ExpiresAt: expires_at,
+	}
+		
+	if err := globalDBCon.Create(cookie_record).Error; err != nil {
+		log.Printf("Неудалось создать запись о Пользователе в БД | err: %s", err.Error())
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}	
 	
+	server_response := RegisterResponse{
+		Login: customer_record.Login,
+		IsAdmin: customer_record.IsAdmin,
+	}
+	ctx.JSON(http.StatusOK, server_response)
+
 }

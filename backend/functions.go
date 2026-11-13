@@ -76,19 +76,19 @@ func SetupDBConn() {
 }
 
 // Данная функция находит все записи из таблицы с полями которые указываются типом T где T -- interface{}
-func GetAllFromDB[T any](session_id string, table interface{}) ([]T, error) {
+func GetAllFromDB[T any](where_query string, where_value string, table interface{}) ([]T, error) {
 	var result []T
 	err := globalDBCon.Model(table).
-		Where("session_id = ?", session_id).
+		Where(where_query, where_value).
 		Find(&result).Error
 	return result, err
 }
-
+//Where("session_id = ?", session_id)
 // Данная функция находит одну запись из таблицы с полями которые указываются типом T где T -- interface{}
-func GetOneFromDB[T any](session_id string, table interface{}) (T, error) {
+func GetOneFromDB[T any](where_query string, where_value string, table interface{}) (T, error) {
 	var result T
 	err := globalDBCon.Model(table).
-		Where("session_id = ?", session_id).
+		Where(where_query, where_value).
 		Find(&result).Error
 	return result, err
 }
@@ -100,14 +100,14 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 	ai_request.SessionId = json_data.SessionId
 	ai_request.RequestId = json_data.RequestId
 	ai_request.Message = json_data.Message
-	history, err := GetAllFromDB[AiHistoryMessageForm](json_data.SessionId, &Messages{})
+	history, err := GetAllFromDB[AiHistoryMessageForm]("session_id = ?", json_data.SessionId, &Messages{})
 	if err != nil {
 		log.Printf("Ошибка при поиске истории сессии | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
 	ai_request.History = history
 
-	customer_profile, err := GetOneFromDB[CustomerProfileForm](json_data.SessionId, &Profiles{})
+	customer_profile, err := GetOneFromDB[CustomerProfileForm]("session_id = ?", json_data.SessionId, &Profiles{})
 	if err != nil {
 		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err

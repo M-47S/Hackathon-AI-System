@@ -93,7 +93,13 @@ type LeadForm struct {
 	CreatedAt string `json:"created_at"`
 }
 
-type CustomerData struct {
+type CustomerRegisterData struct {
+	Login string `json:"login"`
+	Password string `json:"password"`
+	IsAdmin bool `json:"is_admin"`
+}
+
+type CustomerLoginData struct {
 	Login string `json:"login"`
 	Password string `json:"password"`
 	IsAdmin bool `json:"is_admin"`
