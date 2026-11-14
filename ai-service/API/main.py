@@ -312,6 +312,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         vec_store=vec_store,
         reranker=reranker,
         top_k=Settings.RAG_TOP_K,
+        exclude_docs=Settings.RAG_EXCLUDE_DOCS
     )
     _log(f"[5] ChatService ready (top_k={Settings.RAG_TOP_K})")
 

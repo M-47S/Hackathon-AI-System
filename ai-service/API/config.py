@@ -54,8 +54,11 @@ class Settings:
         "RAG_INDEX_DIR",
         default=str(_PROJECT_ROOT / "RAG" / "Store" / "Storage"),
     ))
-    RAG_TOP_K: int = int(_env("RAG_TOP_K", default="5") or "5")
+    RAG_TOP_K: int = int(_env("RAG_TOP_K", default="6") or "6")
     RAG_RERANK: bool = (_env("RAG_RERANK", default="true") or "true").lower() in ("1", "true", "yes")
+    RAG_EXCLUDE_DOCS: set[str] = {
+    s.strip() for s in (_env("RAG_EXCLUDE_DOCS", default="20-portfolio,26-general,00-product-map") or "").split(",") if s.strip()
+}
     
     # ── авто-сборка индекса при первом запуске ──
     RAG_AUTO_BUILD: bool = (_env("RAG_AUTO_BUILD", default="true") or "true").lower() in ("1", "true", "yes")

@@ -1,22 +1,4 @@
 # ai-service/local_solution.py
-"""
-Локальный прогон solution на demo_questions.csv.
-
-Зеркало GRADER/solution.py (онлайн-версия 0.6356), но с локальными ресурсами:
-  - EmbeddingWrapper (sentence-transformers)
-  - LocalReranker (bge-reranker-v2-m3)
-  - LLMClient через GigaChat
-
-Параметры и промпт 1-в-1 с solution.py, чтобы локальная оценка
-была сопоставима с онлайн-сабмитом.
-
-Запуск:
-    python local_solution.py                    # только генерация
-    python local_solution.py --evaluate         # генерация + оценка
-    python local_solution.py --workers 1        # меньше параллелизма (меньше 429)
-    python local_solution.py --skip-rerank      # без реранкера (быстрее)
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,10 +11,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Paths (жёстко заданы — для локального прогона)
-# ---------------------------------------------------------------------------
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 RAG_KB_DIR    = Path(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\Data Knowledge")
@@ -42,21 +20,14 @@ BASELINE_PATH  = Path(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\
 
 SUBMISSION_PATH = PROJECT_ROOT / "submission.csv"
 
-# ---------------------------------------------------------------------------
-# Env / Settings (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
-# ---------------------------------------------------------------------------
-
 try:
     from dotenv import load_dotenv
-    for _p in (PROJECT_ROOT / "evaluation" / ".env",
-               PROJECT_ROOT / "LLM" / ".env",
-               PROJECT_ROOT / ".env"):
+    for _p in (PROJECT_ROOT / "evaluation" / ".env", PROJECT_ROOT / "LLM" / ".env", PROJECT_ROOT / ".env"):
         if _p.exists():
             load_dotenv(_p, override=False)
             break
 except ImportError:
     pass
-
 
 def _env(*names: str, default: str | None = None) -> str | None:
     for n in names:
@@ -65,31 +36,23 @@ def _env(*names: str, default: str | None = None) -> str | None:
             return v
     return default
 
-
-LLM_BASE_URL = _env("AI_BASE_URL", "GIGACHAT_BASE_URL", "LLM_BASE_URL",
-                    default="https://api.giga.chat/v1")
+LLM_BASE_URL = _env("AI_BASE_URL", "GIGACHAT_BASE_URL", "LLM_BASE_URL", default="https://api.giga.chat/v1")
 LLM_AUTH_KEY = _env("AI_AUTH_KEY", "GIGACHAT_AUTH_KEY", "LLM_API_KEY")
 LLM_SCOPE    = _env("AI_SCOPE", "GIGACHAT_SCOPE", default="GIGACHAT_API_PERS")
 LLM_MODEL    = _env("AI_MODEL", "GIGACHAT_MODEL", "LLM_MODEL", default="GigaChat-2-MAX")
 
-# ── СИНХРОНИЗИРОВАНО с solution.py = 0.6356 ──
-TOP_K         = int(_env("TOP_K", default="5") or "5")            # было 3 → 5
-MAX_TOKENS    = int(_env("MAX_TOKENS", default="800") or "800")    # было 600 → 800
-MAX_CTX_CHARS_PER_CHUNK = 4000                                     # было 3000 → 4000
-MAX_CTX_TOTAL_CHARS = 20000                                        # было 12000 → 20000
+TOP_K = int(_env("TOP_K", default="6") or "6")
+MAX_TOKENS = int(_env("MAX_TOKENS", default="800") or "800")
+MAX_CTX_CHARS_PER_CHUNK = 4000
+MAX_CTX_TOTAL_CHARS = 24000
+MAX_WORKERS = int(_env("MAX_WORKERS", default="2") or "2")
+TEMPERATURE = float(_env("TEMPERATURE", default="0.1") or "0.1")
+USE_HYBRID = False  # Отключено
 
-MAX_WORKERS   = int(_env("MAX_WORKERS", default="2") or "2")
-TEMPERATURE   = float(_env("TEMPERATURE", default="0.1") or "0.1")
 RERANK_ENABLED = (_env("RAG_RERANK", default="true") or "true").lower() in ("1", "true", "yes")
-
-# Retry-политика для LLM: 429 не должен убивать вопрос
-LLM_MAX_ATTEMPTS = 4              # 1 попытка + 3 retry
-LLM_BACKOFF_BASE = 3.0            # 3s, 6s, 12s
-LLM_CLIENT_MAX_RETRIES = 5        # внутренние retry openai SDK
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
+LLM_MAX_ATTEMPTS = 4
+LLM_BACKOFF_BASE = 3.0
+LLM_CLIENT_MAX_RETRIES = 5
 
 logging.basicConfig(
     level=logging.INFO,
@@ -98,10 +61,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("local_solution")
 
-# ---------------------------------------------------------------------------
-# System Prompt — Round 1 (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
-# ---------------------------------------------------------------------------
-
+# Синхронизированный промпт Round 1
 SYSTEM_PROMPT = """\
 Ты — профессиональный ИИ-консультант МТС EnergyTool. Ты помогаешь бизнесу \
 с учётом, мониторингом и оптимизацией электроэнергии.
@@ -123,7 +83,7 @@ SYSTEM_PROMPT = """\
 компаний и партнёров.
 7. **Длина:** обычно до 150 слов. Живой экспертный язык, без «воды».
 
-# Пример стиля
+# Примеры эталонных ответов (учись стилю, не копируй дословно)
 
 Вопрос: «У нас старая шиферная крыша. Стоит ли ставить панели?»
 Ответ: «Старую шиферную кровлю не рекомендуем использовать для солнечной \
@@ -133,20 +93,11 @@ SYSTEM_PROMPT = """\
 в ближайшие годы?»
 """
 
-# ---------------------------------------------------------------------------
-# Utils (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
-# ---------------------------------------------------------------------------
-
-_DIALOGUE_LABEL_RE = re.compile(
-    r"(?im)^\s*(?:пользователь|ассистент|user|assistant|клиент|бот|consultant)\s*[:：]\s*"
-)
-
+_DIALOGUE_LABEL_RE = re.compile(r"(?im)^\s*(?:пользователь|ассистент|user|assistant|клиент|бот|consultant)\s*[:：]\s*")
 
 def strip_dialogue_labels(text: str) -> str:
-    """Убирает ярлыки 'Пользователь:', 'Ассистент:' — они шумят в эмбеддингах."""
     cleaned = _DIALOGUE_LABEL_RE.sub("", text)
     return " ".join(cleaned.split())
-
 
 def smart_truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
@@ -157,7 +108,6 @@ def smart_truncate(text: str, max_chars: int) -> str:
         if pos > max_chars * 0.6:
             return cut[:pos + len(sep)].rstrip() + " […]"
     return cut.rstrip() + " […]"
-
 
 def build_context_block(contexts) -> str:
     if not contexts:
@@ -177,17 +127,12 @@ def build_context_block(contexts) -> str:
         total += len(block)
     return "\n".join(parts)
 
-
 def fallback_answer() -> str:
     return (
         "В моей базе знаний нет точной информации по этому вопросу. "
         "Рекомендую уточнить у специалиста МТС EnergyTool. "
         "Подскажите, какая задача для вас сейчас в приоритете?"
     )
-
-# ---------------------------------------------------------------------------
-# IO
-# ---------------------------------------------------------------------------
 
 def read_questions(path: Path) -> list[dict]:
     with path.open(encoding="utf-8-sig", newline="") as f:
@@ -200,126 +145,70 @@ def read_questions(path: Path) -> list[dict]:
     logger.info("Загружено вопросов: %d", len(rows))
     return rows
 
-
 def write_submission(path: Path, answers: list[dict]) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["id", "answer"])
         w.writeheader()
         for row in answers:
             w.writerow(row)
-    logger.info("Записан %s (%d строк)", path, len(answers))
-
-# ---------------------------------------------------------------------------
-# Setup (локальные ресурсы — не меняем)
-# ---------------------------------------------------------------------------
 
 def build_llm_client():
     from LLM import GigaChatTokenProvider, LLMClient
     if not LLM_AUTH_KEY:
-        raise RuntimeError("Нет ключа: AI_AUTH_KEY / GIGACHAT_AUTH_KEY")
-
+        raise RuntimeError("Нет ключа")
     if "giga.chat" in LLM_BASE_URL:
-        provider = GigaChatTokenProvider(
-            auth_key=LLM_AUTH_KEY, scope=LLM_SCOPE, verify_ssl=False,
-        )
-        return LLMClient(
-            base_url=LLM_BASE_URL, token_provider=provider,
-            default_model=LLM_MODEL, verify_ssl=False,
-            max_retries=LLM_CLIENT_MAX_RETRIES,
-        )
-    return LLMClient(
-        base_url=LLM_BASE_URL, api_key=LLM_AUTH_KEY,
-        default_model=LLM_MODEL, verify_ssl=True,
-        max_retries=LLM_CLIENT_MAX_RETRIES,
-    )
-
+        provider = GigaChatTokenProvider(auth_key=LLM_AUTH_KEY, scope=LLM_SCOPE, verify_ssl=False)
+        return LLMClient(base_url=LLM_BASE_URL, token_provider=provider, default_model=LLM_MODEL, verify_ssl=False, max_retries=LLM_CLIENT_MAX_RETRIES)
+    return LLMClient(base_url=LLM_BASE_URL, api_key=LLM_AUTH_KEY, default_model=LLM_MODEL, verify_ssl=True, max_retries=LLM_CLIENT_MAX_RETRIES)
 
 def load_or_build_rag(embedder):
     from RAG.Chunking import MarkdownChunker
     from RAG.pipelines import pipeline_build_from_directory, pipeline_load
-
     try:
         doc_store, vec_store = pipeline_load(RAG_INDEX_DIR, RAG_KB_DIR)
-        logger.info("RAG index loaded: %d chunks, %d leaves",
-                    len(doc_store), len(doc_store.leaf_chunks))
+        logger.info("RAG index loaded: %d chunks", len(doc_store))
         return doc_store, vec_store
     except FileNotFoundError:
         logger.warning("RAG index not found at %s — building...", RAG_INDEX_DIR)
 
     if not RAG_KB_DIR.exists():
         raise RuntimeError(f"KB not found: {RAG_KB_DIR}")
-
-    t0 = time.time()
     stats = pipeline_build_from_directory(
         raw_dir=RAG_KB_DIR, index_dir=RAG_INDEX_DIR, embedder=embedder,
         chunker=MarkdownChunker(chunk_size=640, chunk_overlap=64),
         pattern="**/*.md", save=True,
     )
-    logger.info("Index built in %.1fs: %s", time.time() - t0, stats.summary())
     return pipeline_load(RAG_INDEX_DIR, RAG_KB_DIR)
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--evaluate", action="store_true",
-                        help="После генерации запустить evaluation/main.py")
+    parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     parser.add_argument("--skip-rerank", action="store_true")
     args = parser.parse_args()
 
     t_start = time.time()
-    logger.info("=" * 60)
-    logger.info("LOCAL SOLUTION — EnergyTool (mirror of solution.py 0.6356)")
-    logger.info("LLM       : %s @ %s", LLM_MODEL, LLM_BASE_URL)
-    logger.info("KB        : %s", RAG_KB_DIR)
-    logger.info("INDEX     : %s", RAG_INDEX_DIR)
-    logger.info("QUESTIONS : %s", QUESTIONS_PATH)
-    logger.info("OUTPUT    : %s", SUBMISSION_PATH)
-    logger.info("TOP_K=%d  MAX_TOKENS=%d  CTX=%d/%d",
-                TOP_K, MAX_TOKENS, MAX_CTX_CHARS_PER_CHUNK, MAX_CTX_TOTAL_CHARS)
-    logger.info("WORKERS   : %d, RERANK: %s", args.workers, not args.skip_rerank)
-    logger.info("=" * 60)
+    logger.info("TOP_K=%d TEMP=%.2f EXCLUDE=True", TOP_K, TEMPERATURE)
 
-    if not QUESTIONS_PATH.exists():
-        logger.error("Вопросы не найдены: %s", QUESTIONS_PATH)
-        return 2
-    if not RAG_KB_DIR.exists():
-        logger.error("KB не найдена: %s", RAG_KB_DIR)
+    if not QUESTIONS_PATH.exists() or not RAG_KB_DIR.exists():
         return 2
 
-    # 1. Questions
     questions = read_questions(QUESTIONS_PATH)
 
-    # 2. Embedder
-    logger.info("Загрузка EmbeddingWrapper...")
-    t0 = time.time()
     from RAG.Embedding import EmbeddingWrapper
     embedder = EmbeddingWrapper()
-    logger.info("Embedder готов за %.1fs", time.time() - t0)
 
-    # 3. Reranker
     reranker = None
     if RERANK_ENABLED and not args.skip_rerank:
         try:
             from RAG.Ranking import LocalReranker
-            t0 = time.time()
             reranker = LocalReranker(device="cpu")
-            logger.info("Reranker готов за %.1fs", time.time() - t0)
         except Exception as e:
             logger.warning("Reranker не загружен: %s", e)
 
-    # 4. RAG index
-    t0 = time.time()
     doc_store, vec_store = load_or_build_rag(embedder)
-    logger.info("RAG ready за %.1fs", time.time() - t0)
-
-    # 5. LLM
     llm = build_llm_client()
 
-    # 6. Processing
     from LLM import ChatRequest, LLMMessage, Role
     from LLM.exceptions import LLMRateLimitError
     from RAG.pipelines import QUERY_INSTRUCTIONS, pipeline_search_with_context_by_text
@@ -330,36 +219,24 @@ def main() -> int:
     def process_one(idx: int, row: dict) -> tuple[int, str]:
         qid = row["id"]
         raw_q = row["question"]
-        # СИНХРОНИЗИРОВАНО: strip_dialogue_labels (не extract_dialogue_query)
         retrieval_q = strip_dialogue_labels(raw_q) or raw_q
 
-        last_err: Exception | None = None
         for attempt in range(LLM_MAX_ATTEMPTS):
             try:
-                # --- Retrieval ---
                 contexts = pipeline_search_with_context_by_text(
-                    embedder=embedder,
-                    doc_store=doc_store,
-                    vec_store=vec_store,
-                    query_text=retrieval_q,
-                    query_instruction=instruction,
-                    rerank_query_text=retrieval_q,
-                    mode=ContextMode.PARENT,
-                    top_k=TOP_K,
-                    reranker=reranker,
-                    rerank_oversample=3,
+                    embedder=embedder, doc_store=doc_store, vec_store=vec_store,
+                    query_text=retrieval_q, query_instruction=instruction,
+                    rerank_query_text=retrieval_q, mode=ContextMode.PARENT,
+                    top_k=TOP_K, reranker=reranker, rerank_oversample=3,
                     filter_toc=True,
+                    exclude_documents={"20-portfolio", "26-general", "00-product-map"},
                 )
-
-                # --- Prompt (без facts_block) ---
                 user_msg = (
                     f"{build_context_block(contexts)}\n\n"
                     f"Диалог с клиентом:\n{raw_q}\n\n"
                     "Ответь по правилам. Не повторяй вопрос клиента. "
                     "Обязательно закончи одним уточняющим вопросом."
                 )
-
-                # --- LLM ---
                 resp = llm.chat(ChatRequest(
                     messages=[
                         LLMMessage(role=Role.SYSTEM, content=SYSTEM_PROMPT),
@@ -368,40 +245,16 @@ def main() -> int:
                     temperature=TEMPERATURE,
                     max_output_tokens=MAX_TOKENS,
                 ))
-
-                # --- Post-processing (только split, как в solution.py) ---
-                raw_answer = resp.text or ""
-                answer = (raw_answer.strip() or fallback_answer())
-                answer = " ".join(answer.split())
-                if len(answer) > 10000:
-                    answer = answer[:9950] + "…"
-
-                logger.info(
-                    "[%s] ok ctx=%d raw=%d clean=%d (attempt %d)",
-                    qid, len(contexts), len(raw_answer), len(answer), attempt + 1,
-                )
+                answer = " ".join((resp.text or "").strip().split()) or fallback_answer()
                 return idx, answer
-
             except LLMRateLimitError as e:
-                last_err = e
                 if attempt < LLM_MAX_ATTEMPTS - 1:
-                    wait = LLM_BACKOFF_BASE * (2 ** attempt)   # 3s, 6s, 12s
-                    logger.warning(
-                        "[%s] 429 Too Many Requests — retry %d/%d через %.1fs",
-                        qid, attempt + 1, LLM_MAX_ATTEMPTS - 1, wait,
-                    )
-                    time.sleep(wait)
+                    time.sleep(LLM_BACKOFF_BASE * (2 ** attempt))
                     continue
-                logger.error("[%s] 429 после %d попыток — fallback",
-                             qid, LLM_MAX_ATTEMPTS)
                 return idx, fallback_answer()
-
             except Exception as e:
-                last_err = e
                 logger.exception("[%s] ERROR: %s", qid, e)
                 return idx, fallback_answer()
-
-        logger.error("[%s] exhausted retries: %s", qid, last_err)
         return idx, fallback_answer()
 
     results: list[str | None] = [None] * len(questions)
@@ -411,34 +264,19 @@ def main() -> int:
             i, ans = fut.result()
             results[i] = ans
 
-    answers = [
-        {"id": q["id"], "answer": results[i] or fallback_answer()}
-        for i, q in enumerate(questions)
-    ]
+    answers = [{"id": q["id"], "answer": results[i] or fallback_answer()} for i, q in enumerate(questions)]
     write_submission(SUBMISSION_PATH, answers)
 
-    # Cleanup
-    try:
-        llm.close()
-    except Exception:
-        pass
+    try: llm.close()
+    except: pass
     if reranker:
-        try:
-            reranker.close()
-        except Exception:
-            pass
+        try: reranker.close()
+        except: pass
 
-    logger.info("DONE за %.1fs", time.time() - t_start)
-
-    # 7. Evaluate (если флаг)
     if args.evaluate:
-        logger.info("=" * 60)
-        logger.info("Запуск evaluation...")
-        logger.info("=" * 60)
-        os.environ["EVAL_QUESTIONS"]  = str(QUESTIONS_PATH)
-        os.environ["EVAL_BASELINE"]   = str(BASELINE_PATH)
+        os.environ["EVAL_QUESTIONS"] = str(QUESTIONS_PATH)
+        os.environ["EVAL_BASELINE"] = str(BASELINE_PATH)
         os.environ["EVAL_SUBMISSION"] = str(SUBMISSION_PATH)
-
         _saved_argv = sys.argv
         sys.argv = [_saved_argv[0]]
         try:
@@ -447,11 +285,7 @@ def main() -> int:
         finally:
             sys.argv = _saved_argv
 
-    logger.info("-" * 60)
-    logger.info("Чтобы оценить: python local_solution.py --evaluate")
-    logger.info("Или вручную:   python -m evaluation.main")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

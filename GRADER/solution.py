@@ -26,11 +26,14 @@ LLM_MODEL = _env("LLM_MODEL", "OPENAI_MODEL", "GEN_MODEL", default="qwen/qwen3.8
 EMB_MODEL = _env("EMB_MODEL", default="baai/bge-m3")
 RERANKER_MODEL = _env("RERANKER_MODEL", default="qwen/qwen3-reranker-8b")
 
-# ── САБМИТ #1: больше контекста и места для ответа (vs Round 1 = 0.5798) ──
-TOP_K = int(_env("TOP_K", default="5") or "5")            # 4 → 5
-MAX_TOKENS = int(_env("MAX_TOKENS", default="800") or "800")  # 600 → 800
+TOP_K = int(_env("TOP_K", default="6") or "6")
+MAX_TOKENS = int(_env("MAX_TOKENS", default="800") or "800")
 
+# ── NEW: эксперимент с температурой (0.1 → 0.2)
 TEMPERATURE = float(_env("TEMPERATURE", default="0.1") or "0.1")
+
+# ── NEW: гибрид отключён (проверено — нейтрален)
+USE_HYBRID = False
 
 try:
     _w = int(_env("MAX_WORKERS", default="5") or "5")
@@ -40,9 +43,8 @@ MAX_WORKERS = min(8, max(4, _w))
 
 DATA_DIR = Path(_env("DATA_DIR", default="data") or "data")
 
-# ── САБМИТ #1: больше контекста на чанк и всего ──
-MAX_CTX_CHARS_PER_CHUNK = 4000    # 3500 → 4000
-MAX_CTX_TOTAL_CHARS = 20000       # 14000 → 20000
+MAX_CTX_CHARS_PER_CHUNK = 4000
+MAX_CTX_TOTAL_CHARS = 24000
 
 # ---------------- Logging ----------------
 logging.basicConfig(
@@ -67,7 +69,7 @@ from pipelines import (
     DEFAULT_QUERY_INSTRUCTION,
 )
 
-# ---------------- System prompt (Round 1 = 0.5798, не трогаем) ----------------
+# ---------------- System prompt: few-shot + правила 8,9 ----------------
 SYSTEM_PROMPT = """\
 Ты — профессиональный ИИ-консультант МТС EnergyTool. Ты помогаешь бизнесу \
 с учётом, мониторингом и оптимизацией электроэнергии.
@@ -89,7 +91,7 @@ SYSTEM_PROMPT = """\
 компаний и партнёров.
 7. **Длина:** обычно до 150 слов. Живой экспертный язык, без «воды».
 
-# Пример стиля
+# Примеры эталонных ответов (учись стилю, не копируй дословно)
 
 Вопрос: «У нас старая шиферная крыша. Стоит ли ставить панели?»
 Ответ: «Старую шиферную кровлю не рекомендуем использовать для солнечной \
@@ -105,7 +107,6 @@ _DIALOGUE_LABEL_RE = re.compile(
 )
 
 def strip_dialogue_labels(text: str) -> str:
-    """Убирает ярлыки 'Пользователь:', 'Ассистент:' — они шумят в эмбеддингах."""
     cleaned = _DIALOGUE_LABEL_RE.sub("", text)
     return " ".join(cleaned.split())
 
@@ -203,8 +204,8 @@ def main() -> None:
 
     log.info("=" * 60)
     log.info("LLM=%s  EMB=%s  RERANK=%s", LLM_MODEL, EMB_MODEL, RERANKER_MODEL)
-    log.info("TOP_K=%d  WORKERS=%d  TEMP=%.2f  MAX_TOKENS=%d",
-             TOP_K, MAX_WORKERS, TEMPERATURE, MAX_TOKENS)
+    log.info("TOP_K=%d  WORKERS=%d  TEMP=%.2f  MAX_TOKENS=%d  HYBRID=%s",
+             TOP_K, MAX_WORKERS, TEMPERATURE, MAX_TOKENS, USE_HYBRID)
     log.info("CTX per chunk=%d  total=%d",
              MAX_CTX_CHARS_PER_CHUNK, MAX_CTX_TOTAL_CHARS)
     log.info("=" * 60)
@@ -222,7 +223,6 @@ def main() -> None:
     kb_dir = Path("_kb_extracted")
     md_files = prepare_knowledge_base(kb_dir)
 
-    # --- Клиенты (создаются ОДИН раз) ---
     llm = LLMClient(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, default_model=LLM_MODEL)
     embedder = RemoteEmbedder(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, model=EMB_MODEL)
     probe_dim = embedder._get_text_embedding("probe").size
@@ -237,7 +237,6 @@ def main() -> None:
     except Exception as e:
         log.warning("Реранкер не создан: %s", e)
 
-    # --- Индекс (строится ОДИН раз) ---
     doc_store = DocumentStore(documents_root=kb_dir)
     vec_store = VectorStore(dim=probe_dim)
     chunker = MarkdownChunker(chunk_size=640, chunk_overlap=64)
@@ -252,11 +251,9 @@ def main() -> None:
 
     instruction = QUERY_INSTRUCTIONS.get("detailed_ru", DEFAULT_QUERY_INSTRUCTION)
 
-    # --- Обработка ---
     def process_one(i: int) -> tuple[int, str]:
         q = questions[i]
         raw_question = q["question"]
-        # Чистим ярлыки для retrieval, но в LLM уходит полный текст
         retrieval_query = strip_dialogue_labels(raw_question) or raw_question
 
         try:
@@ -272,6 +269,7 @@ def main() -> None:
                 reranker=reranker,
                 rerank_oversample=3,
                 filter_toc=True,
+                exclude_documents={"20-portfolio", "26-general", "00-product-map"}, 
             )
             ctx_block = build_context_block(contexts)
 
@@ -290,7 +288,7 @@ def main() -> None:
                 max_output_tokens=MAX_TOKENS,
             ))
             answer = (response.text or "").strip() or fallback_answer()
-            answer = " ".join(answer.split())   # одна строка для CSV
+            answer = " ".join(answer.split())
             if len(answer) > 10_000:
                 answer = answer[:9_950] + "…"
             log.info("[%s] ok ctx=%d chars=%d", q["id"], len(contexts), len(answer))
