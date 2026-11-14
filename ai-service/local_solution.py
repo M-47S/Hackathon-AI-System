@@ -2,11 +2,13 @@
 """
 Локальный прогон solution на demo_questions.csv.
 
-Использует прод-ресурсы (EmbeddingWrapper, LocalReranker, LLMClient),
-читает RAG-индекс с диска, пишет submission.csv рядом с собой.
+Зеркало GRADER/solution.py (онлайн-версия 0.6356), но с локальными ресурсами:
+  - EmbeddingWrapper (sentence-transformers)
+  - LocalReranker (bge-reranker-v2-m3)
+  - LLMClient через GigaChat
 
-Это версия Round 6 — лучший локальный Score (0.4688).
-Не менять промпт/постобработку без нового eval-прогона.
+Параметры и промпт 1-в-1 с solution.py, чтобы локальная оценка
+была сопоставима с онлайн-сабмитом.
 
 Запуск:
     python local_solution.py                    # только генерация
@@ -38,11 +40,10 @@ RAG_INDEX_DIR = Path(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\S
 QUESTIONS_PATH = Path(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\demo_questions.csv")
 BASELINE_PATH  = Path(r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Store\_test_\demo_output.csv")
 
-# Output — рядом с local_solution.py
 SUBMISSION_PATH = PROJECT_ROOT / "submission.csv"
 
 # ---------------------------------------------------------------------------
-# Env / Settings
+# Env / Settings (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
 # ---------------------------------------------------------------------------
 
 try:
@@ -71,10 +72,14 @@ LLM_AUTH_KEY = _env("AI_AUTH_KEY", "GIGACHAT_AUTH_KEY", "LLM_API_KEY")
 LLM_SCOPE    = _env("AI_SCOPE", "GIGACHAT_SCOPE", default="GIGACHAT_API_PERS")
 LLM_MODEL    = _env("AI_MODEL", "GIGACHAT_MODEL", "LLM_MODEL", default="GigaChat-2-MAX")
 
-TOP_K         = int(_env("TOP_K", default="3") or "3")
+# ── СИНХРОНИЗИРОВАНО с solution.py = 0.6356 ──
+TOP_K         = int(_env("TOP_K", default="5") or "5")            # было 3 → 5
+MAX_TOKENS    = int(_env("MAX_TOKENS", default="800") or "800")    # было 600 → 800
+MAX_CTX_CHARS_PER_CHUNK = 4000                                     # было 3000 → 4000
+MAX_CTX_TOTAL_CHARS = 20000                                        # было 12000 → 20000
+
 MAX_WORKERS   = int(_env("MAX_WORKERS", default="2") or "2")
 TEMPERATURE   = float(_env("TEMPERATURE", default="0.1") or "0.1")
-MAX_TOKENS    = int(_env("MAX_TOKENS", default="600") or "600")
 RERANK_ENABLED = (_env("RAG_RERANK", default="true") or "true").lower() in ("1", "true", "yes")
 
 # Retry-политика для LLM: 429 не должен убивать вопрос
@@ -94,77 +99,53 @@ logging.basicConfig(
 logger = logging.getLogger("local_solution")
 
 # ---------------------------------------------------------------------------
-# System Prompt (Round 6 — лучший вариант)
+# System Prompt — Round 1 (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-Ты — ИИ-консультант МТС EnergyTool.
+Ты — профессиональный ИИ-консультант МТС EnergyTool. Ты помогаешь бизнесу \
+с учётом, мониторингом и оптимизацией электроэнергии.
 
-# КРИТИЧЕСКОЕ ПРАВИЛО ПРО ЧИСЛА
-- Любое число (5-10 лет, 30 лет, 95%, 750 кВт, 25 лет) ДОЛЖНО быть
-  дословно в блоке «Факты из контекста».
-- Если числа нет в фактах — НЕ ПИШИ ЕГО. Лучше без числа, чем выдумка.
-- НЕ добавляй уточнений, которых нет в контексте:
-  • «старше 5-10 лет» — если в контексте только «старая кровля»
-  • «стоимость ориентировочно» — если про стоимость ничего нет
-  • «коэффициент мощности cos φ» — если этого термина нет в контексте
+# Как отвечать
 
-# Правила ответа
-1. Прямой ответ: Да / Нет / Зависит / название продукта.
-2. МИНИМУМ 2 КОНКРЕТНЫХ ФАКТА из блока «Факты» — цифры, названия,
-   условия, функции продуктов.
-3. Уточняющий вопрос про ФАКТЫ клиента (масштаб, модели, регион).
+1. **Прямой ответ в начале.** Первая фраза — это прямой ответ на последний \
+вопрос клиента (Да / Нет / Зависит / Конкретный продукт).
+2. **Краткое обоснование.** 1–2 факта из контекста базы знаний. \
+Не пересказывай контекст целиком, выдели главное.
+3. **Один уточняющий вопрос в конце.** Всегда. Он должен продвигать \
+консультацию: уточнить масштаб, текущую систему учёта, цель клиента или регион.
+4. **Учитывай историю диалога.** Если клиент уже назвал важные детали \
+(масштаб, регион, тип объекта, цель) — не спрашивай повторно.
+5. **Только факты из контекста.** Если в контексте нет ответа — честно скажи: \
+"В моей базе знаний нет точной информации об этом. Рекомендую уточнить у \
+специалиста" и задай уточняющий вопрос.
+6. **Никаких выдумок.** Не придумывай цены, характеристики, сроки, названия \
+компаний и партнёров.
+7. **Длина:** обычно до 150 слов. Живой экспертный язык, без «воды».
 
-# Open-ended вопросы («С чего начать?», «Что посоветуете?»)
-Перечисли КОНКРЕТНЫЕ продукты из контекста и их функции.
-Пример: «Начните с перечня счётчиков по арендаторам. Приборы, которые
-можно подключить, будут передавать показания в облачную платформу.
-Для неподключённых — распознавание по фотографии. Сколько счётчиков
-обслуживает техник?»
+# Пример стиля
 
-# Запрещено
-- «Это позволит», «Это удобно», «Важно учитывать» — пустые фразы
-- Telegram, WhatsApp, мобильное приложение, «промышленное компьютерное
-  зрение», проценты точности 95%/90% — если их нет в контексте
-- markdown
-
-# Длина
-40–120 слов.
+Вопрос: «У нас старая шиферная крыша. Стоит ли ставить панели?»
+Ответ: «Старую шиферную кровлю не рекомендуем использовать для солнечной \
+станции без дополнительной оценки. Срок службы панелей — около 25 лет, а \
+кровлю может понадобиться менять раньше, что приведёт к демонтажу \
+оборудования. Подскажите, сколько лет вашей кровле и планируете ли ремонт \
+в ближайшие годы?»
 """
 
 # ---------------------------------------------------------------------------
-# Utils
+# Utils (СИНХРОНИЗИРОВАНО с solution.py = 0.6356)
 # ---------------------------------------------------------------------------
 
-_DIALOG_LABEL_RE = re.compile(
+_DIALOGUE_LABEL_RE = re.compile(
     r"(?im)^\s*(?:пользователь|ассистент|user|assistant|клиент|бот|consultant)\s*[:：]\s*"
 )
 
 
 def strip_dialogue_labels(text: str) -> str:
-    return " ".join(_DIALOG_LABEL_RE.sub("", text).split())
-
-
-def extract_last_user_message(question: str) -> str:
-    """Достаёт последнюю реплику клиента из диалога для retrieval."""
-    q_low = question.lower()
-    if "пользователь:" not in q_low and "user:" not in q_low:
-        return question.strip()
-    parts = re.split(r"(?im)^\s*(?:пользователь|user|клиент)\s*[:：]", question)
-    return " ".join(parts[-1].split()) if len(parts) >= 2 else question.strip()
-
-
-def extract_dialogue_query(question: str) -> str:
-    """Для retrieval: последние 2 реплики пользователя (не только последнюю)."""
-    q_low = question.lower()
-    if "пользователь:" not in q_low and "user:" not in q_low:
-        return question.strip()
-    user_msgs = re.findall(
-        r"(?im)^\s*(?:пользователь|user|клиент)\s*[:：]\s*(.+)$", question
-    )
-    if not user_msgs:
-        return question.strip()
-    return " ".join(user_msgs[-2:]).strip()
+    """Убирает ярлыки 'Пользователь:', 'Ассистент:' — они шумят в эмбеддингах."""
+    cleaned = _DIALOGUE_LABEL_RE.sub("", text)
+    return " ".join(cleaned.split())
 
 
 def smart_truncate(text: str, max_chars: int) -> str:
@@ -184,9 +165,13 @@ def build_context_block(contexts) -> str:
     parts = ["Контекст из базы знаний:"]
     total = 0
     for i, ctx in enumerate(contexts, 1):
-        text = smart_truncate(ctx.context_text or ctx.chunk.text or "", 3000)
-        block = f"\n[{i}] {ctx.chunk.document_id} / {ctx.chunk.section_title or '—'}\n{text}"
-        if total + len(block) > 12000:
+        title = ctx.chunk.section_title or "—"
+        doc = ctx.chunk.document_id
+        text = (ctx.context_text or ctx.chunk.text or "").strip()
+        text = smart_truncate(text, MAX_CTX_CHARS_PER_CHUNK)
+        block = f"\n[{i}] {doc} / {title}\n{text}"
+        if total + len(block) > MAX_CTX_TOTAL_CHARS:
+            logger.warning("Контекст превысил %d символов — обрезан", MAX_CTX_TOTAL_CHARS)
             break
         parts.append(block)
         total += len(block)
@@ -199,50 +184,6 @@ def fallback_answer() -> str:
         "Рекомендую уточнить у специалиста МТС EnergyTool. "
         "Подскажите, какая задача для вас сейчас в приоритете?"
     )
-
-
-def postprocess(answer: str) -> str:
-    """Round 6: markdown cleanup + точные галлюцинации. Без проверки чисел."""
-    import re
-    if not answer:
-        return fallback_answer()
-    original = answer
-
-    # Markdown
-    answer = re.sub(r"\*\*(.+?)\*\*", r"\1", answer)
-    answer = re.sub(r"^#{1,6}\s+", "", answer, flags=re.MULTILINE)
-    answer = re.sub(r"```[\s\S]*?```", "", answer)
-
-    # Точные галлюцинации (без стемов — стемы режут лишнее)
-    exact_bad = (
-        "телеграм", "telegram", "whatsapp", "мобильное приложение",
-        "профи", "лайт", "опросный лист", "опросного листа",
-    )
-    if any(w in answer.lower() for w in exact_bad):
-        sents = re.split(r"(?<=[.!?])\s+", answer)
-        cleaned = [
-            s for s in sents
-            if not any(w in s.lower() for w in exact_bad)
-        ]
-        answer = " ".join(cleaned) if cleaned else original
-
-    return " ".join(answer.split()) or fallback_answer()
-
-
-def extract_context_facts(contexts) -> list[str]:
-    """Извлекает числа, проценты, сроки, модели из retrieved-контекста."""
-    import re
-    text = " ".join((c.context_text or c.chunk.text or "") for c in contexts)
-    facts = set()
-    for m in re.finditer(
-        r"\b\d+(?:[.,]\d+)?\s*(?:%|кВт|МВт|лет|года|год|мес|руб|₽|тыс)", text
-    ):
-        facts.add(m.group(0).strip())
-    for m in re.finditer(r"\b[A-ZА-Я][a-zа-я]+\s+\d+[A-ZА-Я0-9-]*\b", text):
-        facts.add(m.group(0).strip())
-    for m in re.finditer(r"«([^»]{2,40})»", text):
-        facts.add(m.group(1).strip())
-    return sorted(facts)[:25]
 
 # ---------------------------------------------------------------------------
 # IO
@@ -269,7 +210,7 @@ def write_submission(path: Path, answers: list[dict]) -> None:
     logger.info("Записан %s (%d строк)", path, len(answers))
 
 # ---------------------------------------------------------------------------
-# Setup
+# Setup (локальные ресурсы — не меняем)
 # ---------------------------------------------------------------------------
 
 def build_llm_client():
@@ -331,12 +272,14 @@ def main() -> int:
 
     t_start = time.time()
     logger.info("=" * 60)
-    logger.info("LOCAL SOLUTION — EnergyTool (Round 6)")
+    logger.info("LOCAL SOLUTION — EnergyTool (mirror of solution.py 0.6356)")
     logger.info("LLM       : %s @ %s", LLM_MODEL, LLM_BASE_URL)
     logger.info("KB        : %s", RAG_KB_DIR)
     logger.info("INDEX     : %s", RAG_INDEX_DIR)
     logger.info("QUESTIONS : %s", QUESTIONS_PATH)
     logger.info("OUTPUT    : %s", SUBMISSION_PATH)
+    logger.info("TOP_K=%d  MAX_TOKENS=%d  CTX=%d/%d",
+                TOP_K, MAX_TOKENS, MAX_CTX_CHARS_PER_CHUNK, MAX_CTX_TOTAL_CHARS)
     logger.info("WORKERS   : %d, RERANK: %s", args.workers, not args.skip_rerank)
     logger.info("=" * 60)
 
@@ -387,7 +330,8 @@ def main() -> int:
     def process_one(idx: int, row: dict) -> tuple[int, str]:
         qid = row["id"]
         raw_q = row["question"]
-        retrieval_q = extract_dialogue_query(raw_q)
+        # СИНХРОНИЗИРОВАНО: strip_dialogue_labels (не extract_dialogue_query)
+        retrieval_q = strip_dialogue_labels(raw_q) or raw_q
 
         last_err: Exception | None = None
         for attempt in range(LLM_MAX_ATTEMPTS):
@@ -407,19 +351,9 @@ def main() -> int:
                     filter_toc=True,
                 )
 
-                # --- Facts block (Round 6) ---
-                facts = extract_context_facts(contexts)
-                facts_block = (
-                    "Факты из контекста (используй ТОЛЬКО эти; если числа нет здесь — НЕ ПИШИ ЕГО):\n"
-                    + "\n".join(f"- {f}" for f in facts)
-                    if facts else
-                    "В контексте нет явных чисел/сроков/моделей. Не выдумывай их."
-                )
-
-                # --- Prompt ---
+                # --- Prompt (без facts_block) ---
                 user_msg = (
                     f"{build_context_block(contexts)}\n\n"
-                    f"{facts_block}\n\n"
                     f"Диалог с клиентом:\n{raw_q}\n\n"
                     "Ответь по правилам. Не повторяй вопрос клиента. "
                     "Обязательно закончи одним уточняющим вопросом."
@@ -435,9 +369,10 @@ def main() -> int:
                     max_output_tokens=MAX_TOKENS,
                 ))
 
-                # --- Post-processing (Round 6: без context_text) ---
+                # --- Post-processing (только split, как в solution.py) ---
                 raw_answer = resp.text or ""
-                answer = postprocess(raw_answer)
+                answer = (raw_answer.strip() or fallback_answer())
+                answer = " ".join(answer.split())
                 if len(answer) > 10000:
                     answer = answer[:9950] + "…"
 
@@ -504,8 +439,6 @@ def main() -> int:
         os.environ["EVAL_BASELINE"]   = str(BASELINE_PATH)
         os.environ["EVAL_SUBMISSION"] = str(SUBMISSION_PATH)
 
-        # Очищаем sys.argv, чтобы evaluation.main.main()
-        # не пытался распарсить наши флаги (--evaluate, --workers, ...)
         _saved_argv = sys.argv
         sys.argv = [_saved_argv[0]]
         try:

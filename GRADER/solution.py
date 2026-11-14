@@ -26,12 +26,12 @@ LLM_MODEL = _env("LLM_MODEL", "OPENAI_MODEL", "GEN_MODEL", default="qwen/qwen3.8
 EMB_MODEL = _env("EMB_MODEL", default="baai/bge-m3")
 RERANKER_MODEL = _env("RERANKER_MODEL", default="qwen/qwen3-reranker-8b")
 
-TOP_K = int(_env("TOP_K", default="4") or "4")
-RERANKER_TOP_N = int(_env("RERANKER_TOP_N", default="4") or "4")
-TEMPERATURE = float(_env("TEMPERATURE", default="0.1") or "0.1")
-MAX_TOKENS = int(_env("MAX_TOKENS", default="600") or "600")
+# ── САБМИТ #1: больше контекста и места для ответа (vs Round 1 = 0.5798) ──
+TOP_K = int(_env("TOP_K", default="5") or "5")            # 4 → 5
+MAX_TOKENS = int(_env("MAX_TOKENS", default="800") or "800")  # 600 → 800
 
-# Конкурентность: уважаем env, но не меньше 4 и не больше 8
+TEMPERATURE = float(_env("TEMPERATURE", default="0.1") or "0.1")
+
 try:
     _w = int(_env("MAX_WORKERS", default="5") or "5")
 except ValueError:
@@ -40,9 +40,9 @@ MAX_WORKERS = min(8, max(4, _w))
 
 DATA_DIR = Path(_env("DATA_DIR", default="data") or "data")
 
-# Контекст: обрезаем, чтобы не улететь в 100K токенов
-MAX_CTX_CHARS_PER_CHUNK = 3500
-MAX_CTX_TOTAL_CHARS = 14000
+# ── САБМИТ #1: больше контекста на чанк и всего ──
+MAX_CTX_CHARS_PER_CHUNK = 4000    # 3500 → 4000
+MAX_CTX_TOTAL_CHARS = 20000       # 14000 → 20000
 
 # ---------------- Logging ----------------
 logging.basicConfig(
@@ -67,7 +67,7 @@ from pipelines import (
     DEFAULT_QUERY_INSTRUCTION,
 )
 
-# ---------------- System prompt ----------------
+# ---------------- System prompt (Round 1 = 0.5798, не трогаем) ----------------
 SYSTEM_PROMPT = """\
 Ты — профессиональный ИИ-консультант МТС EnergyTool. Ты помогаешь бизнесу \
 с учётом, мониторингом и оптимизацией электроэнергии.
@@ -114,7 +114,6 @@ def smart_truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     cut = text[:max_chars]
-    # Ищем последнюю границу предложения
     for sep in (". ", ".\n", "! ", "? ", "\n\n"):
         pos = cut.rfind(sep)
         if pos > max_chars * 0.6:
@@ -204,7 +203,10 @@ def main() -> None:
 
     log.info("=" * 60)
     log.info("LLM=%s  EMB=%s  RERANK=%s", LLM_MODEL, EMB_MODEL, RERANKER_MODEL)
-    log.info("TOP_K=%d  WORKERS=%d  TEMP=%.2f", TOP_K, MAX_WORKERS, TEMPERATURE)
+    log.info("TOP_K=%d  WORKERS=%d  TEMP=%.2f  MAX_TOKENS=%d",
+             TOP_K, MAX_WORKERS, TEMPERATURE, MAX_TOKENS)
+    log.info("CTX per chunk=%d  total=%d",
+             MAX_CTX_CHARS_PER_CHUNK, MAX_CTX_TOTAL_CHARS)
     log.info("=" * 60)
 
     if not LLM_BASE_URL or not LLM_API_KEY:
@@ -238,7 +240,7 @@ def main() -> None:
     # --- Индекс (строится ОДИН раз) ---
     doc_store = DocumentStore(documents_root=kb_dir)
     vec_store = VectorStore(dim=probe_dim)
-    chunker = MarkdownChunker(chunk_size=640, chunk_overlap=64)   # ← крупнее
+    chunker = MarkdownChunker(chunk_size=640, chunk_overlap=64)
 
     log.info("Индексирование...")
     t0 = time.time()
