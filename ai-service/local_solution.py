@@ -69,7 +69,7 @@ LLM_MODEL    = _env("AI_MODEL", "GIGACHAT_MODEL", "LLM_MODEL", default="GigaChat
 TOP_K         = int(_env("TOP_K", default="4") or "4")
 MAX_WORKERS   = int(_env("MAX_WORKERS", default="2") or "2")
 TEMPERATURE   = float(_env("TEMPERATURE", default="0.1") or "0.1")
-MAX_TOKENS    = int(_env("MAX_TOKENS", default="600") or "600")
+MAX_TOKENS = int(_env("MAX_TOKENS", default="300") or "300")  # было 600
 RERANK_ENABLED = (_env("RAG_RERANK", default="true") or "true").lower() in ("1", "true", "yes")
 
 # Retry-политика для LLM: 429 не должен убивать вопрос
@@ -93,24 +93,40 @@ logger = logging.getLogger("local_solution")
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-Ты — ИИ-консультант компании МТС EnergyTool.
-Помогаешь бизнес-клиентам разобраться в решениях по учёту и экономии энергоресурсов.
+Ты — ИИ-консультант МТС EnergyTool.
 
-# Формат ответа — обязательно
-1. Прямой ответ на последнюю реплику клиента (Да / Нет / Зависит / конкретный продукт).
-2. Краткое обоснование — 1-3 предложения, только факты из контекста.
-3. Уточняющий вопрос в конце (обязательно).
+# Формат — ОБЯЗАТЕЛЬНО (как в примерах ниже)
+1. Прямой ответ на последнюю реплику (Да / Нет / Зависит / продукт).
+2. Конкретный факт из контекста (1-2 предложения, БЕЗ общих слов).
+3. Уточняющий вопрос про МАСШТАБ или ТЕКУЩЕЕ СОСТОЯНИЕ клиента.
 
-# Правила
-1. Длина: до 150 слов. Без воды и markdown.
-2. Используй ТОЛЬКО факты из контекста базы знаний.
-3. Если в контексте нет ответа — прямо скажи: «В моей базе знаний нет точной информации об этом. Рекомендую уточнить у специалиста» и задай уточняющий вопрос.
-4. Не придумывай цены, гарантии, характеристики, названия.
-5. Учитывай историю диалога — не спрашивай повторно то, что клиент уже назвал.
+# ЖЁСТКИЕ ЗАПРЕТЫ
+- НЕ выдумывай функции, интерфейсы, каналы (Telegram, WhatsApp, мобильное
+  приложение), цифры точности, проценты экономии — если их НЕТ в контексте.
+- НЕ пиши общие фразы: «это позволит эффективно», «это удобно для
+  централизованного мониторинга», «важно учитывать» — БЕЗ конкретики.
+- НЕ пиши длиннее 80 слов. Идеал — 40–60 слов, как в примерах.
+- НЕ задавай вопросы про предпочтения клиента (хочет/планирует). Спрашивай
+  про ФАКТЫ: количество объектов, текущую систему, мощность, регион.
 
-# Пример
+# ПРИМЕРЫ ХОРОШИХ ОТВЕТОВ (учись стилю)
+
+Вопрос: «У нас несколько магазинов. Можно смотреть их расход в одном кабинете?»
+Ответ: «Да, платформа подходит сетевому ретейлу: данные по разным точкам
+можно анализировать в одном интерфейсе, сравнивать магазины между собой
+и замечать аномальный расход. Сколько у вас магазинов и как сейчас
+передаются показания?»
+
+Вопрос: «Можно сначала поставить станцию на 60 кВт, а потом расширить?»
+Ответ: «Да, станцию можно вводить поэтапно: начать с 60 кВт, а затем
+нарастить мощность. Возможность и параметры расширения лучше учесть при
+проектировании. У вас есть данные о дневном потреблении объекта?»
+
 Вопрос: «У нас старая шиферная крыша. Стоит ли ставить панели?»
-Ответ: «Старую шиферную кровлю не рекомендуем использовать для солнечной станции без дополнительной оценки. Срок службы панелей — около 25 лет, а кровлю может понадобиться менять раньше, что приведёт к демонтажу оборудования. Подскажите, сколько лет вашей кровле и планируете ли ремонт в ближайшие годы?»
+Ответ: «Старую шиферную кровлю не рекомендуем для солнечной станции без
+дополнительной оценки. Срок службы панелей — около 25 лет, а кровлю может
+понадобиться менять раньше, что потребует демонтажа оборудования.
+Сколько лет вашей кровле?»
 """
 
 # ---------------------------------------------------------------------------
@@ -167,6 +183,32 @@ def fallback_answer() -> str:
         "Рекомендую уточнить у специалиста МТС EnergyTool. "
         "Подскажите, какая задача для вас сейчас в приоритете?"
     )
+
+
+def postprocess(answer: str) -> str:
+    import re
+    # 1. Убрать markdown
+    answer = re.sub(r"\*\*(.+?)\*\*", r"\1", answer)
+    answer = re.sub(r"^#{1,6}\s+", "", answer, flags=re.MULTILINE)
+    answer = re.sub(r"```[\s\S]*?```", "", answer)
+    # 2. Убрать запрещённые «выдумки»
+    forbidden = [
+        "telegram", "телеграм", "whatsapp", "мобильное приложение",
+        "точность более 95", "промышленное компьютерное зрение",
+        "гарантированная экономия",
+    ]
+    for word in forbidden:
+        if word in answer.lower():
+            # Удалить предложение с запрещённым словом
+            sentences = re.split(r"(?<=[.!?])\s+", answer)
+            sentences = [s for s in sentences if word not in s.lower()]
+            answer = " ".join(sentences)
+    # 3. Обрезать до 80 слов
+    words = answer.split()
+    if len(words) > 80:
+        cut = " ".join(words[:78]).rstrip(",.;:") + "…"
+        answer = cut
+    return " ".join(answer.split())
 
 # ---------------------------------------------------------------------------
 # IO
@@ -316,21 +358,30 @@ def main() -> int:
         last_err: Exception | None = None
         for attempt in range(LLM_MAX_ATTEMPTS):
             try:
+                # --- Retrieval ---
                 contexts = pipeline_search_with_context_by_text(
-                    embedder=embedder, doc_store=doc_store, vec_store=vec_store,
+                    embedder=embedder,
+                    doc_store=doc_store,
+                    vec_store=vec_store,
                     query_text=retrieval_q,
                     query_instruction=instruction,
                     rerank_query_text=retrieval_q,
                     mode=ContextMode.PARENT,
-                    top_k=TOP_K, reranker=reranker, rerank_oversample=3,
+                    top_k=TOP_K,
+                    reranker=reranker,
+                    rerank_oversample=3,
                     filter_toc=True,
                 )
+
+                # --- Prompt ---
                 user_msg = (
                     f"{build_context_block(contexts)}\n\n"
                     f"Диалог с клиентом:\n{raw_q}\n\n"
                     "Ответь по правилам. Не повторяй вопрос клиента. "
                     "Обязательно закончи одним уточняющим вопросом."
                 )
+
+                # --- LLM ---
                 resp = llm.chat(ChatRequest(
                     messages=[
                         LLMMessage(role=Role.SYSTEM, content=SYSTEM_PROMPT),
@@ -339,11 +390,17 @@ def main() -> int:
                     temperature=TEMPERATURE,
                     max_output_tokens=MAX_TOKENS,
                 ))
-                answer = " ".join((resp.text or "").split()) or fallback_answer()
+
+                # --- Post-processing ---
+                raw_answer = resp.text or ""
+                answer = postprocess(raw_answer)
                 if len(answer) > 10000:
                     answer = answer[:9950] + "…"
-                logger.info("[%s] ok ctx=%d len=%d (attempt %d)",
-                            qid, len(contexts), len(answer), attempt + 1)
+
+                logger.info(
+                    "[%s] ok ctx=%d raw=%d clean=%d (attempt %d)",
+                    qid, len(contexts), len(raw_answer), len(answer), attempt + 1,
+                )
                 return idx, answer
 
             except LLMRateLimitError as e:
@@ -365,7 +422,7 @@ def main() -> int:
                 logger.exception("[%s] ERROR: %s", qid, e)
                 return idx, fallback_answer()
 
-        # Сюда не должны попасть, но на всякий случай
+        # Теоретически недостижимо, но на всякий случай
         logger.error("[%s] exhausted retries: %s", qid, last_err)
         return idx, fallback_answer()
 
