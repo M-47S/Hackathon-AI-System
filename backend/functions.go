@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 )
 
 // При помощи GORM создаем или проверяем что таблицы есть через AutoMigrate
@@ -86,12 +87,20 @@ func GetAllFromDB[T any](where_query string, where_value string, table interface
 }
 //Where("session_id = ?", session_id)
 // Данная функция находит одну запись из таблицы с полями которые указываются типом T где T -- interface{}
-func GetOneFromDB[T any](where_query string, where_value string, table interface{}) (T, error) {
+func GetOneFromDB[T any](where_query string, where_value string, table interface{}) (*T, error) {
 	var result T
 	err := globalDBCon.Model(table).
 		Where(where_query, where_value).
-		Find(&result).Error
-	return result, err
+		Take(&result).Error
+	
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil 
+		}
+		return nil, err 
+	}
+
+	return &result, nil
 }
 
 func GetCustomerIdFromDB(ctx *gin.Context) (string, error){
@@ -110,7 +119,13 @@ func GetCustomerIdFromDB(ctx *gin.Context) (string, error){
 	}
 
 	cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
-	if err != nil {
+	if err != nil{
+		log.Printf("Ошибка при поиске Cookie в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+		return "" , err
+	}
+	if cookie_struct == nil{
+		err = errors.New("Can't find Cookie in DB")
 		log.Printf("Неудалось найти Cookie в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
 		return "" , err
@@ -138,7 +153,20 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
-	ai_request.CustomerProfile = customer_profile
+
+	ai_request.CustomerProfile = *customer_profile
+	session_record, err := GetOneFromDB[Session]("session_id = ?", json_data.SessionId, &Session{})
+	if err != nil {
+		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
+		return AIResponseForm{}, err
+	}
+	if session_record == nil {
+		err = errors.New("Session doesn't exist in DB")
+		log.Printf("Профиль отсутствует в БД | error: %s", err.Error())
+		return AIResponseForm{}, err
+	}
+	ai_request.ConversationSummary = session_record.ConversationSummary
+
 	var ai_response AIResponseForm
 	_, err = globalAIClient.R().
 		SetBody(ai_request).
@@ -163,13 +191,55 @@ func InsertMessage(json_data any) error {
 		message.Role = "user"
 		message.Action = ""
 		message.Content = type_struct.Message
+		message.RecProducts = nil
 	case AIResponseForm :
 		message.SessionId = type_struct.SessionId
 		message.Role = "ai"
 		message.Action = type_struct.Action
 		message.Content = type_struct.Answer
+		message.RecProducts = type_struct.RecProducts
 	}
 	err := globalDBCon.Create(&message).Error
+	return err
+}
+
+func GetLastRecProducts(session_id string) ([]string, error){
+	var ai_message Messages
+	err := globalDBCon.
+		Where("session_id = ? AND role = ? and ", session_id, "ai").
+		Where("rec_products IS NOT NULL").
+		Order("created_at DESC"). 
+		Take(&ai_message).           
+		Error
+	return ai_message.RecProducts, err
+}
+
+func UpdateCustomerProfile(ai_response AIResponseForm) (error) {
+	profile := Profiles{
+		SessionId: ai_response.SessionId, 
+		ObjectCount: ai_response.CustomerProfile.ObjectCount, 
+		Problem: ai_response.CustomerProfile.Problem,
+		BusinessType: ai_response.CustomerProfile.BusinessType,
+		MeteringMethod: ai_response.CustomerProfile.MeteringMethod,
+	}
+
+	err := globalDBCon.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}}, 
+		UpdateAll: true,                            
+	}).Create(&profile).Error
+	return err
+}
+
+func UpdateSessionInfo(ai_response AIResponseForm) (error) {
+	session := Session{
+		SessionId: ai_response.SessionId, 
+		ConversationSummary: ai_response.ConversationSummary,
+	}
+
+	err := globalDBCon.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}}, 
+		DoUpdates: clause.AssignmentColumns([]string{"conversation_summary"}),                         
+	}).Create(&session).Error
 	return err
 }
 

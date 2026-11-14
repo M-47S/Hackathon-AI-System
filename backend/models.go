@@ -34,6 +34,8 @@ type AiHistoryMessageForm struct {
 type FrontHistoryMessageForm struct {
 	Role string `json:"role"`
 	Content string `json:"content"`
+	Action string `json:"action"`
+	RecProducts []string `json:"rec_products"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -65,7 +67,7 @@ type AIResponseForm struct {
   SessionId string `json:"session_id"`
   Action string `json:"action"`
   Answer string `json:"answer"`
-  ProductIds []string `json:"recommended_product_ids"`
+  RecProducts []string `json:"rec_products"`
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
 }
@@ -80,8 +82,8 @@ type UserContactData struct {
 
 // Структура в которой хранится информация для создания Заявки /api/leads
 type ManagerStatementForm struct {
-	Session_id string `json:"session_id"`
-	Submission_id string `json:"submission_id"`
+	SessionId string `json:"session_id"`
+	SubmissionId string `json:"submission_id"`
 	Contact UserContactData `json:"contact"`
 	Consent bool `json:"consent"`
 }

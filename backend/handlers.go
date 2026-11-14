@@ -79,11 +79,35 @@ func UserMessageHandler(ctx *gin.Context) {
 
 	err = InsertMessage(ai_response)
 	if err != nil {
-		log.Printf("Неудалось записать в ответ ИИ в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		log.Printf("Неудалось записать в ответ ИИ в Messages | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
 	}
-	ctx.JSON(http.StatusOK, ai_response)
+
+	err = UpdateCustomerProfile(ai_response)
+		if err != nil {
+		log.Printf("Неудалось обновить / записать информацию в Profiles| Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	err = UpdateSessionInfo(ai_response)
+		if err != nil {
+		log.Printf("Неудалось обновить информацию в Session | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+	ai_message_response  := FrontHistoryMessageForm{
+		Role: "ai",
+		Content: ai_response.Answer,
+		Action: ai_response.Action,
+		RecProducts: ai_response.RecProducts,
+		CreatedAt: time.Now().GoString(),
+	}
+
+	LogStruct("Структура ответа ИИ на Front", ai_message_response)
+	ctx.JSON(http.StatusOK, ai_message_response)
 }
 
 
@@ -115,13 +139,44 @@ func ManagerStatmentHandler(ctx *gin.Context){
 		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
 		return
 	}
-	// дальше запрос сохраняем в БД а также созданную структуру LeadForm !!
+	LogStruct("Данные для заявки с Front", statment_form)
+	lead_id := uuid.NewString()
+	created_at := time.Now()
+
+	rec_products, err := GetLastRecProducts(statment_form.SessionId)
+	if err != nil {
+		log.Printf("Неудалось правиьно найти RecProducts в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	
+	}
+
+	lead := Leads{
+		LeadId: lead_id,
+		SessionId: statment_form.SessionId,
+		Name: statment_form.Contact.Name,
+		Company: statment_form.Contact.Company,
+		Email: statment_form.Contact.Email,
+		Status: "new",
+		RecProducts: rec_products,
+		CreatedAt: created_at,
+	}
+	LogStruct("Созданная форма для записи в БД", lead)
+	if err := globalDBCon.Create(&lead).Error; err != nil {
+		log.Printf("Неудалось создать запись Заявки в БД | err: %s", err.Error())
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
+		return
+	}	
+
 	var lead_form LeadForm
-	lead_form.CreatedAt = time.Now().GoString()
+	lead_form.CreatedAt = created_at.GoString()
 	lead_form.Status = "new"
-	lead_form.LeadId = uuid.NewString()
+	lead_form.LeadId = lead_id	
+	LogStruct("Форма ответа для Front", lead)
 	ctx.JSON(http.StatusCreated, lead_form)
 }
+
+
 
 // /api/register
 func RegisterCustomer(ctx *gin.Context){
@@ -189,17 +244,24 @@ func LoginCustomerCookie(ctx *gin.Context){
 	}
 
 	
-	customer_data, err := GetOneFromDB[Customers]("customer_id = ?", customer_id, &Customers{})
+	customer_record, err := GetOneFromDB[Customers]("customer_id = ?", customer_id, &Customers{})
 	if err != nil {
-		log.Printf("Неудалось найти Customer в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		log.Printf("Ошибка при поиске пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
 
+	if customer_record == nil {
+		err = errors.New("Can't find Customer in DB")
+		log.Printf("Неудалось найти пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
 	server_response := RegisterResponse{
-		Login: customer_data.Login,
-		IsAdmin: customer_data.IsAdmin,
+		Login: customer_record.Login,
+		IsAdmin: customer_record.IsAdmin,
 	}
 	ctx.JSON(http.StatusOK, server_response)
 }
@@ -216,7 +278,13 @@ func LoginCustomerManual(ctx *gin.Context){
 
 	customer_record, err := GetOneFromDB[Customers]("login = ?", cust_data.Login, &Customers{})
 	if err != nil {
-		log.Printf("Неудалось корректно найти пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		log.Printf("Ошибка при поиске пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+	if customer_record == nil {
+		err = errors.New("Can't find Customer in DB")
+		log.Printf("Неудалось найти пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}

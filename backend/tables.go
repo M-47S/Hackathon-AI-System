@@ -22,6 +22,7 @@ type Session struct{
 	SessionId string `gorm:"type:uuid;primaryKey" json:"session_id"`
 	CustomerId string `gorm:"type:uuid" json:"customer_id"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
+	ConversationSummary string `json:"conversation_summary"`
 	
 	Messages []Messages `gorm:"foreignKey:SessionId;constraint:OnDelete:CASCADE;" json:"messages"`
 	Profile Profiles `gorm:"foreignKey:SessionId;constraint:OnDelete:CASCADE;" json:"profile"`
@@ -34,15 +35,17 @@ type Messages struct {
 	Role string `gorm:"type:varchar(20);not null" json:"role"`
 	Action string `gorm:"type:text" json:"action"`
 	Content string `gorm:"type:text;not null" json:"content"`
+	RecProducts []string `gorm:"type:text[]" json:"rec_products"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }
 
 type Profiles struct {
 	SessionId string `gorm:"type:uuid;primaryKey" json:"session_id"`
-	ObjectCount int `gorm:"type:int;not null" json:"object_count"`
-	Problem string `gorm:"type:text;not null" json:"problem"`
-	BusinessType string `gorm:"type:text;not null" json:"business_type"`
+	ObjectCount int `gorm:"type:int" json:"object_count"`
+	Problem string `gorm:"type:text" json:"problem"`
+	BusinessType string `gorm:"type:text" json:"business_type"`
 	MeteringMethod string `gorm:"type:text" json:"metering_method"`
+	
 }
 
 type Leads struct {
@@ -53,6 +56,6 @@ type Leads struct {
 	Email string `gorm:"type:text" json:"email"`
 	Phone string `gorm:"type:text" json:"phone"`
 	Status string `gorm:"type:text" json:"status"`
-	RecProducts []string `gorm:"type:text[]" json:"recommended_product_ids"`
+	RecProducts []string `gorm:"type:text[]" json:"rec_products"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }
