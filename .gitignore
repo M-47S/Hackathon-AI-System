@@ -120,7 +120,8 @@ logs/
 *.db-journal
 
 # ---------- ML / RAG artifacts ----------
-**/models/
+**/models/*
+!**/models/model_loader.py
 *.pt
 *.pth
 *.ckpt
