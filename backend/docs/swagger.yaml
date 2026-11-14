@@ -1,0 +1,336 @@
+basePath: /
+definitions:
+  main.CustomerLoginData:
+    properties:
+      is_admin:
+        type: boolean
+      login:
+        type: string
+      password:
+        type: string
+    type: object
+  main.CustomerRegisterData:
+    properties:
+      is_admin:
+        type: boolean
+      login:
+        type: string
+      password:
+        type: string
+    type: object
+  main.ErrorForm:
+    properties:
+      detail:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  main.FrontHistoryMessageForm:
+    properties:
+      action:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      rec_products:
+        items:
+          type: string
+        type: array
+      role:
+        type: string
+    type: object
+  main.LeadForm:
+    properties:
+      created_at:
+        type: string
+      lead_id:
+        type: string
+      status:
+        type: string
+    type: object
+  main.ManagerStatementForm:
+    properties:
+      consent:
+        type: boolean
+      contact:
+        $ref: '#/definitions/main.UserContactData'
+      session_id:
+        type: string
+      submission_id:
+        type: string
+    type: object
+  main.RegisterResponse:
+    properties:
+      is_admin:
+        type: boolean
+      login:
+        type: string
+    type: object
+  main.SessionForm:
+    properties:
+      created_at:
+        type: string
+      session_id:
+        type: string
+      status:
+        type: string
+    type: object
+  main.UserContactData:
+    properties:
+      company:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+    type: object
+  main.UserHistoryForm:
+    properties:
+      history:
+        items:
+          $ref: '#/definitions/main.FrontHistoryMessageForm'
+        type: array
+      session_id:
+        type: string
+    type: object
+  main.UserRequest:
+    properties:
+      message:
+        type: string
+      request_id:
+        type: string
+      session_id:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API сервиса чата с ИИ и управления заявками
+  title: AI Chat & Leads API
+  version: "1.0"
+paths:
+  /api/chat:
+    post:
+      consumes:
+      - application/json
+      description: Принимает сообщение пользователя, запрашивает ответ у LLM, сохраняет
+        историю в БД, обновляет профиль/сессию и возвращает ответ ИИ
+      parameters:
+      - description: Сообщение от пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.UserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.FrontHistoryMessageForm'
+        "400":
+          description: Неверный формат JSON
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+        "500":
+          description: Ошибка записи или обновления в БД
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+        "503":
+          description: Ошибка при получении ответа от LLM
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Отправить сообщение в чат
+      tags:
+      - chat
+  /api/health:
+    get:
+      description: Возвращает статус работы сервера
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: '{"status": "Server Alive"}'
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Проверка работоспособности сервера
+      tags:
+      - system
+  /api/leads:
+    post:
+      consumes:
+      - application/json
+      description: Принимает контактные данные клиента, подтягивает последние рекомендованные
+        товары и сохраняет заявку в БД
+      parameters:
+      - description: Данные формы заявки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.ManagerStatementForm'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.LeadForm'
+        "400":
+          description: Неверный формат JSON
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+        "500":
+          description: Ошибка поиска или записи в БД
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Создать заявку (лид)
+      tags:
+      - leads
+  /api/login/cookie:
+    get:
+      description: Проверяет cookie_id из запроса, находит пользователя в БД и возвращает
+        его данные
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.RegisterResponse'
+        "500":
+          description: Ошибка проверки cookie или поиска пользователя в БД
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Авторизация по Cookie
+      tags:
+      - auth
+  /api/login/manual:
+    post:
+      consumes:
+      - application/json
+      description: Аутентифицирует пользователя по логину и паролю и создает новую
+        сессионную cookie в БД
+      parameters:
+      - description: Логин и пароль пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.CustomerLoginData'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.RegisterResponse'
+        "400":
+          description: Неверный формат JSON
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+        "500":
+          description: Ошибка поиска в БД, неверный пароль или ошибка создания сессии
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Вход по логину и паролю
+      tags:
+      - auth
+  /api/logout:
+    post:
+      description: Удаляет авторизационную cookie (cookie_id) у клиента
+      responses:
+        "200":
+          description: Успешный выход из системы
+      summary: Выход из аккаунта
+      tags:
+      - auth
+  /api/register:
+    post:
+      consumes:
+      - application/json
+      description: Создает аккаунт пользователя в БД, генерирует сессионную cookie
+        и устанавливает её в браузер
+      parameters:
+      - description: Данные для регистрации пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.CustomerRegisterData'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.RegisterResponse'
+        "400":
+          description: Неверный формат JSON
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+        "500":
+          description: Ошибка хэширования пароля или записи в БД
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Регистрация нового пользователя
+      tags:
+      - auth
+  /api/sessions:
+    post:
+      description: Создает новую сессию в БД для текущего пользователя (по cookie)
+        и возвращает её UUID и статус
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.SessionForm'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Создать новую сессию чата
+      tags:
+      - sessions
+  /api/sessions/{session_id}/messages:
+    get:
+      description: Находит и возвращает все сообщения пользователя и ИИ по указанному
+        session_id для отрисовки чата
+      parameters:
+      - description: UUID сессии
+        in: path
+        name: session_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.UserHistoryForm'
+        "500":
+          description: Ошибка при поиске истории в БД
+          schema:
+            $ref: '#/definitions/main.ErrorForm'
+      summary: Получить историю сообщений сессии
+      tags:
+      - sessions
+securityDefinitions:
+  CookieAuth:
+    in: cookie
+    name: cookie_id
+    type: apiKey
+swagger: "2.0"

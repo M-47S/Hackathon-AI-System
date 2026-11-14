@@ -11,6 +11,15 @@ import (
 var globalDBCon *gorm.DB
 var globalAIClient = resty.New().SetTimeout(30 * time.Second)
 
+// @title           AI Chat & Leads API
+// @version         1.0
+// @description     API сервиса чата с ИИ и управления заявками
+// @host            localhost:8080
+// @BasePath        /
+
+// @securityDefinitions.apikey CookieAuth
+// @in cookie
+// @name cookie_id
 func main(){
 	InitDB()
 	SetupDBConn()

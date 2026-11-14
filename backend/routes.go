@@ -6,6 +6,9 @@ import (
 	"errors"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	_ "main/docs"
+	ginSwagger "github.com/swaggo/gin-swagger" 
+	swaggerFiles "github.com/swaggo/files"
 )
 
 //Проверяем есть ли Cookie для необходимых эндпоинтов
@@ -51,7 +54,8 @@ func SetupRoutes() *gin.Engine {
 		MaxAge: 12 * time.Hour,
 	}
 	r.Use(cors.New(config))
-	
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 
 	api := r.Group("/api")
 	{
