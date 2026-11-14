@@ -18,7 +18,7 @@ export interface UserProfile {
 }
 
 export function login(credentials: LoginCredentials): Promise<UserProfile> {
-    return http.post<UserProfile>('/api/login', credentials);
+    return http.post<UserProfile>('/api/login/manual', credentials);
 }
 
 export function register(credentials: RegisterCredentials): Promise<UserProfile> {

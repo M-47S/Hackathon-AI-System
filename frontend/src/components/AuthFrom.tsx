@@ -63,7 +63,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
                 <div className="auth-field">
                     <label>Пароль</label>
                     <input 
-                        type="password"
+                        type="text"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         disabled={isLoading}

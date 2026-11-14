@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate, Link } from "react-router-dom";
+import { Routes, Route, Navigate, NavLink } from "react-router-dom";
 import { Chat } from "./components/Chat";
 import { AuthForm } from "./components/AuthFrom";
 import { AdminPanel } from "./components/AdminPanel";
@@ -39,21 +39,30 @@ function App() {
 
   return (
     <div className="app-layout">
-      <nav className="top-nav">
-        <Link to="/">Чат</Link>
-        {user.is_admin && <Link to="/admin">Панель администратора</Link>}
+      <aside className="sidebar">
+        <h2>EnergyTool AI</h2>
+        
+        <NavLink to="/" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Чат
+        </NavLink>
+        
+        {user.is_admin && (
+          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Панель администратора
+          </NavLink>
+        )}
+
         <button onClick={() => setUser(null)} className="logout-btn">
           Выйти ({user.login})
         </button>
-      </nav>
+      </aside>
+
       <main className="main-content">
         <Routes>
           <Route path="/" element={<Chat />} />
-
           {user.is_admin && (
             <Route path="/admin" element={<AdminPanel />} />
           )}
-
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
