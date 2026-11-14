@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import logging
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
-
 import faulthandler
+import logging
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 
@@ -30,7 +29,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("AI Service starting — loading heavy resources...")
     logger.info("=" * 60)
 
-    # --- 1. Embedder ---
+    # -----------------------------------------------------------------------
+    # Хелпер: гарантированный вывод в консоль (uvicorn перехватывает logging)
+    # -----------------------------------------------------------------------
+    def _log(msg: str, level: str = "info") -> None:
+        prefix = {
+            "info": "INFO", "warning": "WARN",
+            "error": "ERR ", "debug": "DBG ",
+        }.get(level, "INFO")
+        print(f"[{prefix}] [RAG-BUILD] {msg}", flush=True)
+        try:
+            getattr(logger, level)(msg)
+        except Exception:
+            pass
+
+    # -----------------------------------------------------------------------
+    # 1. Embedder
+    # -----------------------------------------------------------------------
+    _log("=" * 60)
+    _log("[1] Loading EmbeddingWrapper...")
+    t_step = time.time()
+
     from RAG.Embedding import EmbeddingWrapper
     try:
         embedder = EmbeddingWrapper(
@@ -38,20 +57,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             device=Settings.EMBEDDING_DEVICE,
             embed_batch_size=Settings.EMBEDDING_BATCH_SIZE,
         )
-        logger.info(
-            "Embedder loaded: %s (model=%s, device=%s)",
-            type(embedder).__name__,
-            Settings.EMBEDDING_MODEL_NAME,
-            Settings.EMBEDDING_DEVICE,
+        _log(
+            f"[1] Embedder loaded in {time.time()-t_step:.1f}s "
+            f"(model={Settings.EMBEDDING_MODEL_NAME}, "
+            f"device={Settings.EMBEDDING_DEVICE}, "
+            f"batch={Settings.EMBEDDING_BATCH_SIZE})"
         )
+    except TypeError as e:
+        # Вдруг EmbeddingWrapper принимает model_path вместо model_name
+        _log(
+            f"[1] EmbeddingWrapper signature mismatch: {e}. "
+            f"Retrying with model_path=...",
+            level="warning",
+        )
+        embedder = EmbeddingWrapper(
+            model_path=Settings.EMBEDDING_MODEL_NAME,
+            device=Settings.EMBEDDING_DEVICE,
+        )
+        _log(f"[1] Embedder loaded in {time.time()-t_step:.1f}s (fallback)")
     except Exception as e:
-        logger.error("Embedder load failed: %s", e)
-        logger.error("Check EMBEDDING_MODEL_NAME=%s", Settings.EMBEDDING_MODEL_NAME)
+        _log(
+            f"[1] Embedder load FAILED: {e}. "
+            f"Check EMBEDDING_MODEL_NAME={Settings.EMBEDDING_MODEL_NAME}",
+            level="error",
+        )
         raise
 
-    # --- 2. Reranker (опционально) ---
+    # -----------------------------------------------------------------------
+    # 2. Reranker (опционально)
+    # -----------------------------------------------------------------------
     reranker = None
     if Settings.RAG_RERANK:
+        _log("[2] Loading Reranker...")
+        t_step = time.time()
         try:
             from RAG.Ranking import LocalReranker
             reranker = LocalReranker(
@@ -59,30 +97,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 device=Settings.RERANKER_DEVICE,
                 max_length=Settings.RERANKER_MAX_LENGTH,
             )
-            logger.info(
-                "Reranker loaded (model=%s, device=%s, max_length=%d)",
-                Settings.RERANKER_MODEL_PATH,
-                Settings.RERANKER_DEVICE,
-                Settings.RERANKER_MAX_LENGTH,
+            _log(
+                f"[2] Reranker loaded in {time.time()-t_step:.1f}s "
+                f"(model={Settings.RERANKER_MODEL_PATH}, "
+                f"device={Settings.RERANKER_DEVICE}, "
+                f"max_length={Settings.RERANKER_MAX_LENGTH})"
             )
         except Exception as e:
-            logger.warning(
-                "Reranker not loaded (%s) — retrieval without rerank. "
-                "Check RERANKER_MODEL_PATH=%s",
-                e, Settings.RERANKER_MODEL_PATH,
+            _log(
+                f"[2] Reranker not loaded ({e}) — retrieval without rerank. "
+                f"Check RERANKER_MODEL_PATH={Settings.RERANKER_MODEL_PATH}",
+                level="warning",
             )
+    else:
+        _log("[2] Reranker disabled (RAG_RERANK=false)")
 
-    # --- 3. RAG index (auto-build if missing) ---
+    # -----------------------------------------------------------------------
+    # 3. RAG index (auto-build if missing)
+    # -----------------------------------------------------------------------
     from RAG.pipelines import pipeline_build_from_directory, pipeline_load
 
-    def _log(msg: str, level: str = "info") -> None:
-        """Логирование с гарантированным flush (uvicorn иногда буферизует)."""
-        getattr(logger, level)(msg)
-        sys.stderr.flush()
-        sys.stdout.flush()
-
     def _load_or_build_index():
-        _log("[3.1] Trying to load RAG index from cache...")
+        # --- 3.1 Попытка загрузить готовый индекс ---
+        _log(f"[3.1] Trying to load RAG index from cache: {Settings.RAG_INDEX_DIR}")
         t_step = time.time()
         try:
             doc_store, vec_store = pipeline_load(
@@ -100,6 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 level="warning",
             )
 
+        # --- 3.2 Проверка флага авто-сборки ---
         if not Settings.RAG_AUTO_BUILD:
             raise RuntimeError(
                 f"RAG index missing at {Settings.RAG_INDEX_DIR} "
@@ -107,7 +145,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 f"Either set RAG_AUTO_BUILD=true or build index manually."
             )
 
-        # --- 3.2 Проверка KB ---
+        # --- 3.3 Проверка KB ---
         _log(f"[3.2] Checking KB directory: {Settings.RAG_KB_DIR}")
         t_step = time.time()
         kb_path = Path(Settings.RAG_KB_DIR).resolve()
@@ -130,13 +168,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 f"KB directory exists but has no .md files: {kb_path}"
             )
 
-        # --- 3.3 Импорт chunker (llama_index инициализация) ---
+        # --- 3.4 Импорт chunker (llama_index init) ---
         _log("[3.3] Importing MarkdownChunker (llama_index init, may take 5-10s)...")
         t_step = time.time()
         from RAG.Chunking import MarkdownChunker
         _log(f"[3.3] MarkdownChunker imported in {time.time()-t_step:.1f}s")
 
-        # --- 3.4 Обёртка вокруг embedder для прогресса ---
+        # --- 3.5 Обёртка embedder для прогресса ---
         _log("[3.4] Wrapping embedder with progress logging...")
         original_batch = embedder._get_text_embedding_batch
         batch_counter = {"n": 0, "total_chars": 0}
@@ -153,20 +191,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             result = original_batch(texts, *args, **kwargs)
             _log(
                 f"[embed] batch #{batch_counter['n']} done in "
-                f"{time.time()-t_b:.1f}s (total {batch_counter['total_chars']} chars)"
+                f"{time.time()-t_b:.1f}s "
+                f"(total {batch_counter['total_chars']} chars)"
             )
             return result
 
         embedder._get_text_embedding_batch = logged_batch
         _log("[3.4] Embedder wrapped")
 
-        # --- 3.5 Сборка индекса ---
+        # --- 3.6 Сборка индекса ---
         _log(
             f"[3.5] Building RAG index from {len(md_files)} .md files "
-            f"(chunk={Settings.RAG_CHUNK_SIZE}, overlap={Settings.RAG_CHUNK_OVERLAP}). "
-            f"Expected duration: 2-5 min on CPU. "
-            f"Progress will appear below per embedding batch."
+            f"(chunk={Settings.RAG_CHUNK_SIZE}, "
+            f"overlap={Settings.RAG_CHUNK_OVERLAP}, "
+            f"batch={Settings.EMBEDDING_BATCH_SIZE}, "
+            f"device={Settings.EMBEDDING_DEVICE})."
         )
+        _log(
+            "[3.5] ⏳ Expected duration: 60-180 sec on CPU with "
+            "multilingual-e5-large. Progress appears per batch below. "
+            "First batch takes 15-30s (model warm-up). DO NOT interrupt."
+        )
+
         t_build = time.time()
 
         # faulthandler: через 90s покажет traceback всех потоков если сборка висит
@@ -185,8 +231,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 save=True,
             )
         except Exception as e:
-            _log(f"[3.5] RAG index build FAILED after "
-                 f"{time.time()-t_build:.1f}s: {e}", level="error")
+            _log(
+                f"[3.5] RAG index build FAILED after "
+                f"{time.time()-t_build:.1f}s: {e}",
+                level="error",
+            )
             raise RuntimeError(f"RAG index build failed: {e}") from e
         finally:
             faulthandler.cancel_dump_traceback_later()
@@ -196,7 +245,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             f"{stats.summary()}"
         )
 
-        # --- 3.6 Верификация ---
+        # --- 3.7 Верификация ---
         _log("[3.6] Reloading built index from disk...")
         t_step = time.time()
         doc_store, vec_store = pipeline_load(
@@ -211,13 +260,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         doc_store, vec_store = _load_or_build_index()
     except Exception as e:
-        logger.error("RAG index load/build failed: %s", e)
+        _log(f"[3] RAG index load/build FAILED: {e}", level="error")
         raise
 
-    # --- 4. LLM client ---
+    # -----------------------------------------------------------------------
+    # 4. LLM client
+    # -----------------------------------------------------------------------
+    _log("[4] Initializing LLM client...")
     from LLM import LLMClient, GigaChatTokenProvider
+
     if not Settings.LLM_AUTH_KEY:
-        raise RuntimeError("No LLM_AUTH_KEY / AI_AUTH_KEY / GIGACHAT_AUTH_KEY")
+        raise RuntimeError(
+            "No LLM_AUTH_KEY / AI_AUTH_KEY / GIGACHAT_AUTH_KEY. "
+            "Set it in API/.env"
+        )
 
     is_gigachat = "giga.chat" in Settings.LLM_BASE_URL
     if is_gigachat:
@@ -239,10 +295,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             default_model=Settings.LLM_MODEL,
             verify_ssl=True,
         )
-    logger.info("LLM client: base=%s model=%s",
-                Settings.LLM_BASE_URL, Settings.LLM_MODEL)
+    _log(
+        f"[4] LLM client ready: base={Settings.LLM_BASE_URL} "
+        f"model={Settings.LLM_MODEL} provider="
+        f"{'GigaChat' if is_gigachat else 'OpenAI-compat'}"
+    )
 
-    # --- 5. ChatService ---
+    # -----------------------------------------------------------------------
+    # 5. ChatService
+    # -----------------------------------------------------------------------
+    _log("[5] Initializing ChatService...")
     app.state.chat_service = ChatService(
         llm_client=llm_client,
         embedder=embedder,
@@ -251,10 +313,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reranker=reranker,
         top_k=Settings.RAG_TOP_K,
     )
+    _log(f"[5] ChatService ready (top_k={Settings.RAG_TOP_K})")
 
     logger.info("=" * 60)
     logger.info("AI Service ready at http://%s:%d", Settings.HOST, Settings.PORT)
     logger.info("=" * 60)
+    print(
+        f"\n✅ AI Service ready at http://{Settings.HOST}:{Settings.PORT}\n"
+        f"   Swagger: http://{Settings.HOST}:{Settings.PORT}/docs\n"
+        f"   Health:  http://{Settings.HOST}:{Settings.PORT}/health\n",
+        flush=True,
+    )
 
     try:
         yield
