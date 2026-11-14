@@ -31,6 +31,7 @@ export interface ChatMessage {
     created_at: string;
     action?: Action | null;
     products?: ProductCard[];
+    debugRaw?: string;
 }
 
 //Запрос на отправку сообщения

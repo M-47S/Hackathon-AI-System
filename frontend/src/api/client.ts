@@ -12,7 +12,7 @@ export class ApiError extends Error {
     }
 }
 
-type HttpMethod = 'GET' | 'POST'
+type HttpMethod = 'GET' | 'POST' | 'DELETE'
 
 interface RequestOptions {
     method?: HttpMethod;
@@ -73,4 +73,5 @@ async function request<T>(
 export const http = {
     get: <T>(path: string) => request<T>(path, { method: 'GET' }),
     post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
+    delete: <T>(path: string) => request<T>(path, { method: 'DELETE' })
 };

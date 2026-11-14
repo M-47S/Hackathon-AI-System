@@ -1,0 +1,43 @@
+.lead-form { 
+    background: white; 
+    padding: 15px; 
+    border-radius: 12px; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; 
+}
+
+.lead-form h4 { 
+    margin: 0; 
+    color: #0a105e; 
+}
+
+.lead-form input { 
+    padding: 10px; 
+    border: 1px solid #ccc; 
+    border-radius: 6px; 
+}
+
+.lead-actions { 
+    display: flex; 
+    gap: 10px; 
+}
+
+.submit-btn { 
+    flex: 1; 
+    background: #e81a0c; 
+    color: white; 
+    padding: 10px; 
+    border: none; 
+    border-radius: 6px; 
+    cursor: pointer; 
+}
+
+.cancel-btn { 
+    background: #ccc; 
+    color: #333; 
+    padding: 10px; 
+    border: none; 
+    border-radius: 6px; 
+    cursor: pointer; 
+}

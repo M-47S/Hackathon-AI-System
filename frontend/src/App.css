@@ -73,3 +73,85 @@ body, html {
     height: 100%;
     min-height: 0;
 }
+
+.new-chat-btn { 
+    background: #0a105e; 
+    color: white; 
+    padding: 10px; 
+    border-radius: 8px; 
+    border: none; 
+    cursor: pointer; 
+    margin-bottom: 10px;
+}
+
+.session-list { 
+    flex: 1; 
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 5px; 
+}
+
+.session-item { 
+    color: #DCDDDE; 
+    text-decoration: none; 
+    padding: 10px; 
+    border-radius: 8px; 
+    font-size: 0.9rem; 
+}
+
+.session-item.active { 
+    background: #40444B; 
+    color: white; 
+}
+
+/* Обертка для элемента списка, чтобы позиционировать кнопку */
+.session-item-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.session-item-wrapper:hover {
+    background-color: #40444B;
+}
+
+/* Переопределяем стили ссылки внутри обертки */
+.session-item {
+    flex: 1;
+    color: #DCDDDE;
+    text-decoration: none;
+    padding: 10px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-item.active {
+    background-color: #40444B;
+    color: white;
+}
+
+/* Кнопка удаления (крестик) */
+.delete-chat-btn {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 0 10px;
+    font-size: 1rem;
+    opacity: 0; /* Скрыта по умолчанию */
+    transition: opacity 0.2s, color 0.2s;
+}
+
+/* Показываем крестик при наведении на чат */
+.session-item-wrapper:hover .delete-chat-btn {
+    opacity: 1;
+}
+
+.delete-chat-btn:hover {
+    color: #ff6b6b;
+}

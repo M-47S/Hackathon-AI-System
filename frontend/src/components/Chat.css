@@ -10,14 +10,6 @@
     overflow: hidden;
 }
 
-.chat-header {
-    padding: 20px;
-    text-align: center;
-    background-color: #0a105e;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink: 0;
-}
-
 .chat-header h1 {
     color: #ffffff;
     font-size: 1.5rem;
@@ -124,4 +116,45 @@
     background-color: #555;
     color: #999;
     cursor: not-allowed;
+}
+
+.products-container { 
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; 
+    margin-top: 10px; 
+}
+
+.lead-form-container { 
+    padding: 0 20px 10px 20px; 
+}
+
+.debug-json {
+    margin-top: 10px;
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.debug-json summary {
+    color: #888;
+    cursor: pointer;
+    font-size: 0.85rem;
+    outline: none;
+    user-select: none;
+}
+
+.debug-json summary:hover {
+    color: #bbb;
+}
+
+.debug-json pre {
+    margin-top: 10px;
+    color: #4ec9b0; /* Цвет строк в VS Code */
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.8rem;
+    overflow-x: auto;
 }
