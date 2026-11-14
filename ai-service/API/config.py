@@ -5,8 +5,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Загружаем .env из любого разумного места (первое найденное)
+# Приоритет загрузки .env:
+#   1. API/.env          — единый .env сервиса (новый)
+#   2. LLM/.env          — старый .env LLM (backward compat)
+#   3. ai-service/.env   — корневой .env
+#   4. cwd/.env
 _ENV_CANDIDATES = [
+    Path(__file__).parent / ".env",                  # API/.env (приоритет)
     Path(__file__).parent.parent / "LLM" / ".env",   # ai-service/LLM/.env
     Path(__file__).parent.parent / ".env",           # ai-service/.env
     Path.cwd() / ".env",
@@ -35,11 +40,11 @@ class Settings:
         "GIGACHAT_AUTH_KEY", "AI_AUTH_KEY", "LLM_API_KEY",
     )
     LLM_SCOPE: str = _env("GIGACHAT_SCOPE", "AI_SCOPE", default="GIGACHAT_API_PERS")
-    LLM_MODEL: str = _env("GIGACHAT_MODEL", "AI_MODEL", "LLM_MODEL", default="GigaChat-2")
+    LLM_MODEL: str = _env("GIGACHAT_MODEL", "AI_MODEL", "LLM_MODEL", default="GigaChat-2-MAX")
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 800
 
-    # --- RAG ---
+    # --- RAG: пути к данным ---
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent
     RAG_KB_DIR: Path = Path(_env(
         "RAG_KB_DIR",
@@ -49,8 +54,29 @@ class Settings:
         "RAG_INDEX_DIR",
         default=str(_PROJECT_ROOT / "RAG" / "Store" / "Storage"),
     ))
-    RAG_TOP_K: int = 4
-    RAG_RERANK: bool = True
+    RAG_TOP_K: int = int(_env("RAG_TOP_K", default="5") or "5")
+    RAG_RERANK: bool = (_env("RAG_RERANK", default="true") or "true").lower() in ("1", "true", "yes")
+    
+    # ── авто-сборка индекса при первом запуске ──
+    RAG_AUTO_BUILD: bool = (_env("RAG_AUTO_BUILD", default="true") or "true").lower() in ("1", "true", "yes")
+    RAG_CHUNK_SIZE: int = int(_env("RAG_CHUNK_SIZE", default="640") or "640")
+    RAG_CHUNK_OVERLAP: int = int(_env("RAG_CHUNK_OVERLAP", default="64") or "64")
+
+    # --- Embedder (явные пути) ---
+    EMBEDDING_MODEL_NAME: str = _env(
+        "EMBEDDING_MODEL_NAME",
+        default=str(_PROJECT_ROOT / "RAG" / "Embedding" / "models" / "multilingual-e5-large"),
+    )
+    EMBEDDING_DEVICE: str = _env("EMBEDDING_DEVICE", default="cpu")
+    EMBEDDING_BATCH_SIZE: int = int(_env("EMBEDDING_BATCH_SIZE", default="10") or "10")
+
+    # --- Reranker (явные пути) ---
+    RERANKER_MODEL_PATH: str = _env(
+        "RERANKER_MODEL_PATH",
+        default=str(_PROJECT_ROOT / "RAG" / "Ranking" / "models" / "BAAI" / "bge-reranker-v2-m3"),
+    )
+    RERANKER_DEVICE: str = _env("RERANKER_DEVICE", default="cpu")
+    RERANKER_MAX_LENGTH: int = int(_env("RERANKER_MAX_LENGTH", default="1024") or "1024")
 
     # --- Service ---
     HOST: str = _env("AI_HOST", default="0.0.0.0")
