@@ -4,7 +4,7 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 # --- 1. Настройки ---
 MODEL_ID = "intfloat/multilingual-e5-large"
-LOCAL_PATH = r"C:\Users\0\OneDrive\Desktop\RagApp\EMBEDDING\models\multilingual-e5-large"
+LOCAL_PATH = f"C:/Users/0/OneDrive/Desktop/RagApp/EMBEDDING/models/{MODEL_ID}"
 
 # --- 2. Проверка и скачивание ---
 # Проверяем, существует ли папка и есть ли в ней файлы (например, config.json)

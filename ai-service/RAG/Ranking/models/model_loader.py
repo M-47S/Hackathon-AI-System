@@ -4,7 +4,7 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 # --- 1. Настройки ---
 MODEL_ID = "BAAI/bge-reranker-v2-m3"
-LOCAL_PATH = r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Ranking\models\BAAI/bge-reranker-v2-m3"
+LOCAL_PATH = f"C:/Users/0/OneDrive/Desktop/HackAI/ai-service/RAG/Ranking/models/{MODEL_ID}"
 
 # --- 2. Проверка и скачивание ---
 # Проверяем, существует ли папка и есть ли в ней файлы (например, config.json)
