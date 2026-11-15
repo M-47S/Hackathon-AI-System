@@ -12,7 +12,7 @@ var globalDBCon *gorm.DB
 var globalAIClient = resty.New().SetTimeout(30 * time.Second)
 
 func main(){
-	InitDB()
+	//InitDB()
 	SetupDBConn()
 	InitTables()
 	initLogger()
