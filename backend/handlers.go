@@ -342,7 +342,7 @@ func LoginCustomerManual(ctx *gin.Context){
 	}
 
 	ctx.SetCookie(CookieName, cookie_id, maxAge, "/", "", false, false)
-	
+	ctx.Set(CookieName, cookie_id) 
 	server_response := RegisterResponse{
 		Login: customer_record.Login,
 		IsAdmin: customer_record.IsAdmin,
