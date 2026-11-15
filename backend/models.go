@@ -83,7 +83,7 @@ type AIResponseForm struct {
   SessionId string `json:"session_id"`
   Action string `json:"action"`
   Answer string `json:"answer"`
-  RecProducts []string `json:"rec_products"`
+  RecProducts []string `json:"product_ids"`
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
 }
