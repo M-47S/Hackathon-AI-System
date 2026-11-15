@@ -123,7 +123,13 @@ type CustomerLoginData struct {
 	IsAdmin bool `json:"is_admin"`
 }
 
+type SessionInfo struct {
+	SessionId string `json:"session_id"`
+	ConversationSummary string `json:"conversation_summary"`
+}
+
 type RegisterResponse struct {
 	Login string `json:"login"`
 	IsAdmin bool `json:"is_admin"`
+	Sessions []SessionInfo `json:"sessions"`
 }

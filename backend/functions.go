@@ -134,6 +134,7 @@ func GetCustomerIdFromDB(ctx *gin.Context) (string, error){
 
 }
 
+
 // Данная функция необходима для создания Корректного запроса к
 // /v1/chat и возвращения ответа в handler (Наверное готово)
 func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {

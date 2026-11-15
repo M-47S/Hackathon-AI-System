@@ -180,7 +180,18 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	LogStruct("Форма ответа для Front", lead)
 	ctx.JSON(http.StatusCreated, lead_form)
 }
+// DELETE  /api/delete/:session_id
+func DeleteSessionHandler(ctx *gin.Context){
+	session_id := ctx.Param("session_id")
+	err := globalDBCon.Delete(&Session{}, "session_id = ?", session_id).Error
+		if err != nil {
+		log.Printf("Неудалось корректно удалить Session в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+	ctx.Status(http.StatusOK)
 
+}
 
 
 // /api/register
@@ -263,10 +274,16 @@ func LoginCustomerCookie(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
-
+	sessions, err := GetAllFromDB[SessionInfo]("session_id = ?", customer_id, &Session{})
+	if err != nil {	
+		log.Printf("Неудалось корректно найти Сессии в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
 	server_response := RegisterResponse{
 		Login: customer_record.Login,
 		IsAdmin: customer_record.IsAdmin,
+		Sessions: sessions,
 	}
 	ctx.JSON(http.StatusOK, server_response)
 }
@@ -312,15 +329,25 @@ func LoginCustomerManual(ctx *gin.Context){
 	}
 		
 	if err := globalDBCon.Create(&cookie_record).Error; err != nil {
-		log.Printf("Неудалось создать запись о Пользователе в БД | err: %s", err.Error())
+		log.Printf("Неудалось создать запись Cookie в БД | err: %s", err.Error())
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
-	}	
+	}
+
+	sessions, err := GetAllFromDB[SessionInfo]("session_id = ?", customer_record.CustomerId, &Session{})
+	if err != nil {	
+		log.Printf("Неудалось корректно найти Сессии в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
 	
 	server_response := RegisterResponse{
 		Login: customer_record.Login,
 		IsAdmin: customer_record.IsAdmin,
+		Sessions: sessions,
 	}
+
 	ctx.JSON(http.StatusOK, server_response)
 
 }
+
