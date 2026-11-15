@@ -191,7 +191,7 @@ type AdminLeadItem struct {
 
 // Структура для ответа списка заявок
 type LeadsList struct{
-	Items []AdminLeadItem
+	Items []AdminLeadItem `json:"items"`
 }
 
 //Структура с деталями заявок для ответ Фронт
