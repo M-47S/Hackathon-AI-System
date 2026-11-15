@@ -29,10 +29,8 @@ func InitTables() {
 func InitAIClient() {
 	aiURL := os.Getenv("AI_SERVICE_URL")
 	if aiURL == "" {
-		aiURL = "http://localhost:8001" // Дефолт, если в .env забыли указать
+		aiURL = "http://localhost:8001" 
 	}
-
-	// Задаем базовый адрес уже после чтения .env
 	globalAIClient.SetBaseURL(aiURL)
 }
 
