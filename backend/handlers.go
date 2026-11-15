@@ -99,7 +99,7 @@ func UserMessageHandler(ctx *gin.Context) {
 	}
 
 	ai_message_response  := FrontHistoryMessageForm{
-		Role: "ai",
+		Role: "assistant",
 		Content: ai_response.Answer,
 		Action: ai_response.Action,
 		RecProducts: ai_response.RecProducts,
