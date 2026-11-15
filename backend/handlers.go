@@ -340,6 +340,8 @@ func LoginCustomerManual(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
+
+	ctx.SetCookie(CookieName, cookie_id, maxAge, "/", "", false, false)
 	
 	server_response := RegisterResponse{
 		Login: customer_record.Login,
