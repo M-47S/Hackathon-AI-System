@@ -146,6 +146,7 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 		log.Printf("Ошибка при поиске истории сессии | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
+	log.Print(history)
 	ai_request.History = history
 
 	customer_profile, err := GetOneFromDB[CustomerProfileForm]("session_id = ?", json_data.SessionId, &Profiles{})
