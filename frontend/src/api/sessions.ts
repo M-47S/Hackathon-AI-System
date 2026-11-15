@@ -1,5 +1,5 @@
 import { http } from './client';
-import type { SessionResponse, HistoryResponse, SessionListItem } from '../types/api';
+import type { SessionResponse, HistoryResponse } from '../types/api';
 
 export function createSession(): Promise<SessionResponse> {
     return http.post<SessionResponse>('/api/sessions');
@@ -10,5 +10,5 @@ export function getHistory(sessionId: string): Promise<HistoryResponse> {
 }
 
 export function deleteSession(sessionId: string): Promise<void> {
-    return http.delete<void>(`/api/delete/${sessionId}`);
+    return http.delete<void>(`/api/sessions/${sessionId}`);
 }

@@ -7,13 +7,6 @@ export type Action =
 
 export type MessageRole = 'user' | 'assistant';
 
-export interface CustomerProfile {
-  business_type: string | null;
-  objects_count: number | null;
-  problem: string | null;
-  metering_method: string | null;
-}
-
 export interface ProductCard {
   id: string;
   name: string;
@@ -26,8 +19,11 @@ export interface ChatMessage {
   content: string;
   created_at: string;
   action?: Action | null;
-  products?: ProductCard[];
+  recommended_product_ids?: ProductCard[] | null;
   debugRaw?: string; 
+  // Поля для отладки (сохраняются только в стейте React)
+  sequence?: string | null;
+  used_documents?: string[] | null;
 }
 
 export interface ChatRequest {
@@ -41,8 +37,11 @@ export interface ChatResponse {
   request_id: string;
   message: ChatMessage;
   action: Action;
-  products: ProductCard[];
-  conversation_summary?: string | null; // Добавили, так как бэкенд его присылает
+  recommended_product_ids?: ProductCard[] | null;
+  conversation_summary?: string | null;
+  // Поля для отладки
+  sequence?: string | null;
+  used_documents?: string[] | null;
 }
 
 export interface SessionResponse {
@@ -56,7 +55,6 @@ export interface HistoryResponse {
   messages: ChatMessage[];
 }
 
-// НОВОЕ: Тип для элемента списка сессий
 export interface SessionListItem {
   session_id: string;
   conversation_summary: string | null;

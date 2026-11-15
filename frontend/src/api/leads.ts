@@ -12,7 +12,6 @@ export interface LeadCreateRequest {
     consent: boolean;
 }
 
-// Возвращаем Promise<void>, так как ответ нам не нужен
 export function createLead(data: LeadCreateRequest): Promise<void> {
     return http.post<void>('/api/leads', data);
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { SyntheticEvent, KeyboardEvent } from "react";
-import type { ChatMessage, SessionListItem } from "../types/api";
+import type { ChatMessage, SessionListItem, ProductCard as ProductType } from "../types/api";
 import { createSession, getHistory } from "../api/sessions";
 import { sendMessage as apiSendMessage } from "../api/chat";
 import { useNavigate, useParams } from "react-router-dom";
@@ -24,20 +24,33 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
-    const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+    const [isLeadFormOpen, setIsLeadFormOpen] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState<ProductType | null>(null);
     const [hasSubmittedLead, setHasSubmittedLead] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
-    // 1. Загрузка чата и сброс предыдущего состояния
     useEffect(() => {
         setMessages([]);
         setInput('');
-        setSelectedProduct(null);
         setHasSubmittedLead(false);
         setError(null);
-        setIsLoading(false); // Индикатор печати гаснет сразу при переходе
+        setIsLoading(false); 
+
+        const savedProductStr = localStorage.getItem(`lead_product_${urlSessionId}`);
+        if (savedProductStr) {
+            try {
+                const prod = JSON.parse(savedProductStr);
+                setSelectedProduct(prod);
+                setIsLeadFormOpen(true);
+            } catch (e) {
+                localStorage.removeItem(`lead_product_${urlSessionId}`);
+                setIsLeadFormOpen(false);
+            }
+        } else {
+            setIsLeadFormOpen(false);
+        }
 
         if (urlSessionId) {
             setSessionId(urlSessionId);
@@ -47,6 +60,8 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                     const formatted = rawMessages.map((msg: any, index: number) => ({
                         ...msg,
                         id: msg.id || `hist-${index}-${Date.now()}`,
+                        // Защита: если бэк прислал продукты в recommended_product_ids, берем их
+                        recommended_product_ids: msg.recommended_product_ids || [], 
                     }));
                     setMessages(formatted);
                 })
@@ -58,10 +73,7 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
             createSession().then(data => {
                 setSessionId(data.session_id);
                 if (onSessionCreated) {
-                    onSessionCreated({
-                        session_id: data.session_id,
-                        conversation_summary: null,
-                    });
+                    onSessionCreated({ session_id: data.session_id, conversation_summary: null });
                 }
                 navigate(`/chat/${data.session_id}`, { replace: true });
             }).catch(err => {
@@ -73,12 +85,10 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
         setTimeout(() => textAreaRef.current?.focus(), 100);
     }, [urlSessionId]);
 
-    // 2. Скролл вниз при новых сообщениях
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isLoading]);
 
-    // 3. Авто-увеличение высоты поля ввода
     useEffect(() => {
         if (textAreaRef.current) {
             textAreaRef.current.style.height = 'auto';
@@ -86,7 +96,6 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
         }
     }, [input]);
 
-    // 4. Отправка сообщения
     async function handleSend() {
         if (!input.trim() || !sessionId || isLoading) return;
 
@@ -96,8 +105,10 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
         setInput('');
         setError(null);
         setIsLoading(true);
-        setSelectedProduct(null); 
+        setIsLeadFormOpen(false); 
+        setSelectedProduct(null);
         setHasSubmittedLead(false);
+        localStorage.removeItem(`lead_product_${targetSessionId}`);
 
         const userMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -114,10 +125,10 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                 message: userText,
             });
             
-            // Если пользователь переключил чат, пока мы ждали ответ — игнорируем его
-            if (window.location.pathname !== `/chat/${targetSessionId}`) {
-                return; 
-            }
+            if (window.location.pathname !== `/chat/${targetSessionId}`) return;
+
+            // ИСПРАВЛЕНИЕ: Достаем продукты из ответа (на случай, если бэк прислал их на верхнем уровне)
+            const products = response.recommended_product_ids || (response as any).products || [];
 
             const assistantMessage: ChatMessage = {
                 id: response.message?.id || Date.now().toString(),
@@ -125,7 +136,10 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                 content: response.message?.content || "Пустой ответ",
                 created_at: response.message?.created_at || new Date().toISOString(),
                 action: response.action,
-                products: response.products || [], 
+                // Записываем продукты в объект сообщения, чтобы React их увидел
+                recommended_product_ids: products.length > 0 ? products : null,
+                sequence: response.sequence || null,
+                used_documents: response.used_documents || null,
                 debugRaw: JSON.stringify(response, null, 2),
             };
 
@@ -144,7 +158,6 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                 }]);
             }
         } finally {
-            // Сбрасываем загрузку, только если мы все еще в том же чате
             if (window.location.pathname === `/chat/${targetSessionId}`) {
                 setIsLoading(false);
                 setTimeout(() => textAreaRef.current?.focus(), 0);
@@ -165,8 +178,10 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
     }
 
     const handleLeadSubmitSuccess = () => {
+        setIsLeadFormOpen(false);
         setSelectedProduct(null);
         setHasSubmittedLead(true);
+        localStorage.removeItem(`lead_product_${sessionId}`);
         setMessages(prev => [...prev, {
             id: Date.now().toString(),
             role: 'assistant',
@@ -182,23 +197,55 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                     <div key={msg.id} className={`message-bubble ${msg.role === 'user' ? 'message-user' : 'message-assistant'}`}>
                         {msg.content}
 
-                        {msg.products && msg.products.length > 0 && (
+                        {/* Отрисовка продуктов */}
+                        {msg.recommended_product_ids && msg.recommended_product_ids.length > 0 && (
                             <div className="products-container">
-                                {msg.products.map((product) => (
+                                {msg.recommended_product_ids.map((product) => (
                                     <ProductCard 
                                         key={product.id} 
                                         product={product} 
-                                        onInterested={(name) => setSelectedProduct(name)}
+                                        onInterested={() => {
+                                            setSelectedProduct(product);
+                                            setIsLeadFormOpen(true);
+                                            localStorage.setItem(`lead_product_${sessionId}`, JSON.stringify(product));
+                                        }}
                                     />
                                 ))}
                             </div>
                         )}
 
-                        {isDebugMode && msg.debugRaw && (
-                            <details className="debug-json">
-                                <summary>Показать JSON ответа</summary>
-                                <pre>{msg.debugRaw}</pre>
-                            </details>
+                        {/* Блок отладки */}
+                        {isDebugMode && msg.role === 'assistant' && (
+                            <div className="debug-panel" style={{ marginTop: '15px', borderTop: '1px dashed #555', paddingTop: '10px' }}>
+                                {msg.sequence ? (
+                                    <details className="debug-json" open>
+                                        <summary style={{ color: '#e81a0c', fontWeight: 'bold', cursor: 'pointer' }}>🧠 Цепочка размышлений (Sequence)</summary>
+                                        <pre style={{ whiteSpace: 'pre-wrap', color: '#00ffcc', marginTop: '10px', fontSize: '0.85rem' }}>
+                                            {msg.sequence}
+                                        </pre>
+                                    </details>
+                                ) : null}
+                                
+                                {msg.used_documents && msg.used_documents.length > 0 ? (
+                                    <details className="debug-json" open style={{ marginTop: '10px' }}>
+                                        <summary style={{ color: '#007aff', fontWeight: 'bold', cursor: 'pointer' }}>📚 Использованные документы</summary>
+                                        <ul style={{ color: '#fff', marginTop: '10px', paddingLeft: '20px', fontSize: '0.85rem' }}>
+                                            {msg.used_documents.map((doc, i) => (
+                                                <li key={i} style={{ marginBottom: '5px' }}>{doc}</li>
+                                            ))}
+                                        </ul>
+                                    </details>
+                                ) : null}
+
+                                {!msg.sequence && (!msg.used_documents || msg.used_documents.length === 0) && msg.debugRaw ? (
+                                    <details className="debug-json">
+                                        <summary style={{ color: '#aaa', cursor: 'pointer' }}>Сырой JSON ответа</summary>
+                                        <pre style={{ whiteSpace: 'pre-wrap', color: '#00ffcc', marginTop: '10px', fontSize: '0.85rem' }}>
+                                            {msg.debugRaw}
+                                        </pre>
+                                    </details>
+                                ) : null}
+                            </div>
                         )}
                     </div>
                 ))}
@@ -206,12 +253,21 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                 <div ref={messagesEndRef} />
             </main>
             
-            {selectedProduct && !hasSubmittedLead && (
+            {isLeadFormOpen && !hasSubmittedLead && (
                 <div className="lead-form-container">
+                    {selectedProduct && (
+                        <div style={{ color: 'white', marginBottom: '10px', fontSize: '0.9rem' }}>
+                            Заявка на продукт: <strong>{selectedProduct.name}</strong>
+                        </div>
+                    )}
                     <LeadForm
                         sessionId={sessionId || ''}
                         onSubmitSuccess={handleLeadSubmitSuccess}
-                        onCancel={() => setSelectedProduct(null)}
+                        onCancel={() => {
+                            setIsLeadFormOpen(false);
+                            setSelectedProduct(null);
+                            localStorage.removeItem(`lead_product_${sessionId}`);
+                        }}
                     />
                 </div>
             )}
@@ -227,11 +283,7 @@ export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatPr
                     rows={1}
                     onKeyDown={handleKeyDown}
                 />
-                <button 
-                    type="submit"
-                    className="chat-submit"
-                    disabled={isLoading || !input.trim() || !sessionId}
-                >
+                <button type="submit" className="chat-submit" disabled={isLoading || !input.trim() || !sessionId}>
                     Отправить
                 </button>
             </form>
