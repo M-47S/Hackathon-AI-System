@@ -1,5 +1,8 @@
 package main
-
+import (
+	"time"
+	"github.com/lib/pq"
+)
 
 
 // Map с информацией о продуктах
@@ -95,7 +98,7 @@ type FrontHistoryMessageForm struct {
 	Role string `json:"role"`
 	Content string `json:"content"`
 	Action string `json:"action"`
-	RecProducts []string `json:"recommended_product_ids"`
+	RecProducts pq.StringArray  `json:"recommended_product_ids"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -129,7 +132,7 @@ type AIResponseForm struct {
   SessionId string `json:"session_id"`
   Action string `json:"action"`
   Answer string `json:"answer"`
-  RecProducts []string `json:"recommended_product_ids"`
+  RecProducts pq.StringArray  `json:"recommended_product_ids"`
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
 }
@@ -176,3 +179,49 @@ type RegisterResponse struct {
 	IsAdmin bool `json:"is_admin"`
 	Sessions []SessionInfo `json:"sessions"`
 }
+//Структура для того чтобы собрать краткую информацию по Заявке
+type AdminLeadItem struct {
+	LeadId      string         `json:"lead_id"`
+	Company     string         `json:"company"`
+	Status      string         `json:"status"`
+	Problem     string         `json:"problem"`
+	RecProducts pq.StringArray `gorm:"type:text[]" json:"recommended_product_ids"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
+// Структура для ответа списка заявок
+type LeadsList struct{
+	Items []AdminLeadItem
+}
+
+//Структура с деталями заявок для ответ Фронт
+type LeadDetails struct{
+	LeadId string `json:"lead_id"`
+	SessionId string `json:"session_id"`
+	Status string `json:"status"`
+	Contact UserContactData `json:"contact"`
+	CustomerProfile CustomerProfileForm `json:"customer_profile"`
+	RecProducts pq.StringArray `json:"recommended_product_ids"`
+	ConversationSummary string `json:"conversation_summary"`
+	CreatedAt string `json:"created_at"`
+}
+
+//Вспомогательная структура для того чтобы объединить таблицы в 1 
+type FlatTableLead struct {
+		LeadId              string
+		SessionId           string
+		Status              string
+		Name                string
+		Company             string
+		Email               string
+		Phone               string
+		RecProducts         pq.StringArray `gorm:"type:text[]"`
+		CreatedAt           time.Time
+		BusinessType        string
+		ObjectCount         int
+		Problem             string
+		MeteringMethod      string
+		ConversationSummary string
+	}
+
+

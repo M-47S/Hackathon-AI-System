@@ -64,6 +64,8 @@ func SetupRoutes() *gin.Engine {
 		// Группа с проверка на наличие Cookie
 		cookieGroup := api.Group("", ReadCookieMiddleWare())
 		{
+			cookieGroup.GET("/admin/leads", GetAdminLeads)
+			cookieGroup.GET("/admin/leads/:lead_id", GetAdminLeadDetails)
 			cookieGroup.DELETE("/delete/:session_id", DeleteSessionHandler)
 			cookieGroup.GET("/login/cookie", LoginCustomerCookie)
 			cookieGroup.POST("/sessions", CreateSessionHandler)

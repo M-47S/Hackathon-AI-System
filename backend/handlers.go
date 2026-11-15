@@ -189,6 +189,96 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	ctx.JSON(http.StatusCreated, lead_form)
 }
 
+// Данный Handler возвращает все созданные заявки
+//GET api/admin/leads
+func GetAdminLeads(ctx *gin.Context){
+	items := make([]AdminLeadItem, 0)
+
+	err := globalDBCon.Model(&Leads{}).
+		Select(
+			"leads.lead_id",
+			"leads.company",
+			"leads.status",
+			"profiles.problem",
+			"leads.rec_products",
+			"leads.created_at",
+		).
+		Joins("LEFT JOIN profiles ON profiles.session_id = leads.session_id").
+		Order("leads.created_at DESC").
+		Scan(&items).Error
+	if err != nil {
+		log.Printf("Ошибка при поиске заявок в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+	response := LeadsList{
+		Items: items,
+	}
+	LogStruct("Были найдены заявки", response)
+	ctx.JSON(http.StatusOK, response)
+}
+
+// GET /api/admin/leads/:lead_id
+func GetAdminLeadDetails(ctx *gin.Context){
+	lead_id := ctx.Param("lead_id")
+	var row FlatTableLead
+
+
+	err := globalDBCon.Model(&Leads{}).
+		Select(`
+			leads.lead_id,
+			leads.session_id,
+			leads.status,
+			leads.name,
+			leads.company,
+			leads.email,
+			leads.phone,
+			leads.rec_products,
+			leads.created_at,
+			profiles.business_type,
+			profiles.object_count,
+			profiles.problem,
+			profiles.metering_method,
+			sessions.conversation_summary
+		`).
+		Joins("LEFT JOIN profiles ON profiles.session_id = leads.session_id").
+		Joins("LEFT JOIN sessions ON sessions.session_id = leads.session_id").
+		Where("leads.lead_id = ?", lead_id).
+		First(&row).Error
+
+	if err != nil {
+		log.Printf("Ошибка при поиске данных о заявке в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
+		return
+	}
+
+
+	response := LeadDetails{
+		LeadId:    row.LeadId,
+		SessionId: row.SessionId,
+		Status:    row.Status,
+		Contact: UserContactData{
+			Name:    row.Name,
+			Company: row.Company,
+			Phone:   row.Phone,
+			Email:   row.Email,
+		},
+		CustomerProfile: CustomerProfileForm{
+			BusinessType:   row.BusinessType,
+			ObjectCount:   row.ObjectCount,
+			Problem:        row.Problem,
+			MeteringMethod: row.MeteringMethod,
+		},
+		RecProducts:         row.RecProducts,
+		ConversationSummary: row.ConversationSummary,
+		CreatedAt:           row.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	LogStruct("Подробности заявки отправленные на Фронт", response)
+	ctx.JSON(http.StatusOK, response)
+}
+
+
+
 // Данные Handler нужен для того чтобы удалить сессию
 // DELETE  /api/delete/:session_id
 func DeleteSessionHandler(ctx *gin.Context){
@@ -368,4 +458,5 @@ func LoginCustomerManual(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, server_response)
 
 }
+
 
