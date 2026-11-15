@@ -16,6 +16,7 @@ func main(){
 	SetupDBConn()
 	InitTables()
 	initLogger()
+	InitAIClient()
 	r := SetupRoutes()
 	
 	log.Print("The server was opened at http://localhost:8080")
