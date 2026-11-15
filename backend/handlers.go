@@ -275,6 +275,7 @@ func LoginCustomerCookie(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
+	log.Print(customer_record.CustomerId)
 	sessions, err := GetAllFromDB[SessionInfo]("session_id = ?", customer_id, &Session{})
 	if err != nil {	
 		log.Printf("Неудалось корректно найти Сессии в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
@@ -335,7 +336,7 @@ func LoginCustomerManual(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
 	}
-
+	log.Print(customer_record.CustomerId)
 	sessions, err := GetAllFromDB[SessionInfo]("session_id = ?", customer_record.CustomerId, &Session{})
 	if err != nil {	
 		log.Printf("Неудалось корректно найти Сессии в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
