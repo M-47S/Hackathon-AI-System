@@ -231,15 +231,9 @@ func UpdateCustomerProfile(ai_response AIResponseForm) (error) {
 }
 
 func UpdateSessionInfo(ai_response AIResponseForm) (error) {
-	session := Session{
-		SessionId: ai_response.SessionId, 
-		ConversationSummary: ai_response.ConversationSummary,
-	}
-
-	err := globalDBCon.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "session_id"}}, 
-		DoUpdates: clause.AssignmentColumns([]string{"conversation_summary"}),                         
-	}).Create(&session).Error
+	err := globalDBCon.Model(&Session{}).
+		Where("session_id = ?", ai_response.SessionId).
+		Update("conversation_summary", ai_response.ConversationSummary).Error
 	return err
 }
 
