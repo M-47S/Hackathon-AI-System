@@ -210,7 +210,7 @@ func InsertMessage(json_data any) (string, error) {
 func GetLastRecProducts(session_id string) ([]string, error){
 	var ai_message Messages
 	err := globalDBCon.
-		Where("session_id = ? AND role = ? and ", session_id, "ai").
+		Where("session_id = ? AND role = ?", session_id, "assistant").
 		Where("rec_products IS NOT NULL").
 		Order("created_at DESC"). 
 		Take(&ai_message).           
