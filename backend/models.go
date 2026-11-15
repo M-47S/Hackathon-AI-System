@@ -6,7 +6,7 @@ import (
 
 
 // Map с информацией о продуктах
-var ProductMap = map[string]ProductData{
+var ProductMap = map[string]ProductData {
 	"cloud_askue": {
 		Id:          "cloud_askue",
 		Name:        "Облачная АСКУЭ",
@@ -91,9 +91,11 @@ type FromAiMessageResponse struct {
 	Message MessageForm `json:"message"`
 	Action string `json:"action"`
 	RecProducts []ProductData `json:"products"`
+	Sequence string `json:"sequence"`
+    UsedDocuments []string `json:"used_documents"`
 }
 
-// Структура для считывания []History из БД для Пользователя /v1/chat
+// Структура для преобразования ответа из БД в Фронт Форму
 type FrontHistoryMessageForm struct {
 	Role string `json:"role"`
 	Content string `json:"content"`
@@ -101,13 +103,13 @@ type FrontHistoryMessageForm struct {
 	RecProducts []ProductData  `json:"recommended_product_ids"`
 	CreatedAt string `json:"created_at"`
 }
-
+// Структура для считывания []History из БД для Пользователя
 type DBHistoryMessageForm struct {
-	Role string `json:"role"`
-	Content string `json:"content"`
-	Action string `json:"action"`
-	RecProducts pq.StringArray  `json:"recommended_product_ids"`
-	CreatedAt string `json:"created_at"`
+	Role        string         `gorm:"column:role" json:"role"`
+	Content     string         `gorm:"column:content" json:"content"`
+	Action      string         `gorm:"column:action" json:"action"`
+	RecProducts pq.StringArray `gorm:"column:rec_products;type:text[]" json:"recommended_product_ids"`
+	CreatedAt   time.Time      `gorm:"column:created_at" json:"created_at"`
 }
 
 //Структура для ответа истории чата в Фронт /api/sessions/{session_id}/messages
@@ -143,6 +145,8 @@ type AIResponseForm struct {
   RecProducts pq.StringArray  `json:"recommended_product_ids"`
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
+  Sequence string `json:"sequence"`
+  UsedDocuments []string `json:"used_documents"`
 }
 
 // Структура в которой хранится информация о пользователе которая призодит с Front /api/leads
@@ -216,20 +220,20 @@ type LeadDetails struct{
 
 //Вспомогательная структура для того чтобы объединить таблицы в 1 
 type FlatTableLead struct {
-		LeadId              string
-		SessionId           string
-		Status              string
-		Name                string
-		Company             string
-		Email               string
-		Phone               string
-		RecProducts         pq.StringArray `gorm:"type:text[]"`
-		CreatedAt           time.Time
-		BusinessType        string
-		ObjectCount         int
-		Problem             string
-		MeteringMethod      string
-		ConversationSummary string
-	}
+	LeadId              string
+	SessionId           string
+	Status              string
+	Name                string
+	Company             string
+	Email               string
+	Phone               string
+	RecProducts         pq.StringArray `gorm:"type:text[]"`
+	CreatedAt           time.Time
+	BusinessType        string
+	ObjectCount         int
+	Problem             string
+	MeteringMethod      string
+	ConversationSummary string
+}
 
 

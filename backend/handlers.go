@@ -116,6 +116,8 @@ func UserMessageHandler(ctx *gin.Context) {
 		},
 		Action: ai_response.Action,
 		RecProducts: rec_products,
+		Sequence: ai_response.Sequence,
+		UsedDocuments: ai_response.UsedDocuments,
 	}
 
 	LogStruct("Структура ответа ИИ на Front", ai_message_response)
@@ -135,6 +137,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
+	LogStruct("Данные в БД", db_history)
 	
 	var history []FrontHistoryMessageForm
 
@@ -143,7 +146,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 		item := FrontHistoryMessageForm{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			CreatedAt: msg.CreatedAt,
+			CreatedAt: msg.CreatedAt.UTC().Format(time.RFC3339),
 			Action:    msg.Action,
 			RecProducts:  make([]ProductData, 0), 
 		}
