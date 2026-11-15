@@ -157,7 +157,7 @@ func ManagerStatmentHandler(ctx *gin.Context){
 
 	rec_products, err := GetLastRecProducts(statment_form.SessionId)
 	if err != nil {
-		log.Printf("Неудалось правиьно найти RecProducts в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
+		log.Printf("Неудалось правильно найти RecProducts в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	
@@ -178,7 +178,7 @@ func ManagerStatmentHandler(ctx *gin.Context){
 		log.Printf("Неудалось создать запись Заявки в БД | err: %s", err.Error())
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
-	}	
+	}
 
 	var lead_form LeadForm
 	lead_form.CreatedAt = created_at.GoString()
@@ -187,6 +187,8 @@ func ManagerStatmentHandler(ctx *gin.Context){
 	LogStruct("Форма ответа для Front", lead)
 	ctx.JSON(http.StatusCreated, lead_form)
 }
+
+// Данные Handler нужен для того чтобы удалить сессию
 // DELETE  /api/delete/:session_id
 func DeleteSessionHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
@@ -200,10 +202,10 @@ func DeleteSessionHandler(ctx *gin.Context){
 
 }
 
-
+//Данный Handler нужен чтобы создать учетную запись
 // /api/register
 func RegisterCustomer(ctx *gin.Context){
-	var cust_data CustomerRegisterData
+	var cust_data CustomerCredentionals
 	if err := ctx.ShouldBindJSON(&cust_data); err != nil {
 		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))
@@ -251,12 +253,14 @@ func RegisterCustomer(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, response)
 }
 
+//Данный handler нужен чтобы пользователь мог выйти из профиля
 // /api/logout
 func LogoutCustomer(ctx *gin.Context){
 	ctx.SetCookie(CookieName, "", -1, "/", "", false, false)
 	ctx.Status(http.StatusOK)
 }
 
+//Данный Handler нужен чтобы выйти из профиля а также сбросиь Cookie
 // /api/login/cookie
 func LoginCustomerCookie(ctx *gin.Context){
 
@@ -298,10 +302,10 @@ func LoginCustomerCookie(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, server_response)
 }
 
-
+//Данный Handler нужен чтобы зайти в профиль 
 // /api/login/manual
 func LoginCustomerManual(ctx *gin.Context){
-	var cust_data CustomerLoginData
+	var cust_data CustomerCredentionals
 	if err := ctx.ShouldBindJSON(&cust_data); err != nil {
 		log.Printf("Неверный формат пришедшего JSON | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusBadRequest, FillErrorForm("Invalid JSON format", http.StatusBadRequest, err))

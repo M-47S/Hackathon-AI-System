@@ -2,7 +2,7 @@ package main
 
 
 
-
+// Map с информацией о продуктах
 var ProductMap = map[string]ProductData{
 	"cloud_askue": {
 		Id:          "cloud_askue",
@@ -36,14 +36,14 @@ var ProductMap = map[string]ProductData{
 	},
 }
 
-
+// Структура для хранения в Map
 type ProductData struct {
 	Id string `json:"id"`
 	Name string `json:"name"`
 	Description string `json:"description"`
 }
 
-
+//Стурктура для единого формата ошибки
 type ErrorForm struct {
 	Type string `json:"type"`
 	Title string `json:"title"`
@@ -73,6 +73,7 @@ type AiHistoryMessageForm struct {
 	Content string `json:"content"`
 }
 
+//Структура часть ответа на фронт от /api/chat
 type MessageForm struct {
 	Id string `json:"id"`
 	Role string `json:"role"`
@@ -80,7 +81,7 @@ type MessageForm struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// ответ на фронт от /api/chat
+//Структура ответа на фронт от /api/chat
 type FromAiMessageResponse struct {
 	SessionId string `json:"session_id"`
 	RequestId string `json:"request_id"`
@@ -98,6 +99,7 @@ type FrontHistoryMessageForm struct {
 	CreatedAt string `json:"created_at"`
 }
 
+//Структура для ответа истории чата в Фронт /api/sessions/{session_id}/messages
 type UserHistoryForm struct {
 	SessionId string `json:"session_id"`
 	History []FrontHistoryMessageForm `json:"history"`
@@ -121,6 +123,7 @@ type RequestToAI struct {
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
 }
+
 // Структура для принятия ответа из LLM /v1/chat
 type AIResponseForm struct {
   SessionId string `json:"session_id"`
@@ -154,23 +157,20 @@ type LeadForm struct {
 	CreatedAt string `json:"created_at"`
 }
 
-type CustomerRegisterData struct {
+//Структура для принятия данных Логин Пароль
+type CustomerCredentionals struct {
 	Login string `json:"login"`
 	Password string `json:"password"`
 	IsAdmin bool `json:"is_admin"`
 }
 
-type CustomerLoginData struct {
-	Login string `json:"login"`
-	Password string `json:"password"`
-	IsAdmin bool `json:"is_admin"`
-}
-
+//Структура которая входит в состав ответа какие Сессии принадлежат пользователю
 type SessionInfo struct {
 	SessionId string `json:"session_id"`
 	ConversationSummary string `json:"conversation_summary"`
 }
 
+//Структура которая возвращает информацию при входе в систему для корректной отрисовки на Фронт
 type RegisterResponse struct {
 	Login string `json:"login"`
 	IsAdmin bool `json:"is_admin"`
