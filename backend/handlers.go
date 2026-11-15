@@ -144,7 +144,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 		item := FrontHistoryMessageForm{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			CreatedAt: msg.CreatedAt,
+			CreatedAt: msg.CreatedAt.UTC().Format(time.RFC3339),
 			Action:    msg.Action,
 			RecProducts:  make([]ProductData, 0), 
 		}

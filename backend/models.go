@@ -103,11 +103,11 @@ type FrontHistoryMessageForm struct {
 }
 
 type DBHistoryMessageForm struct {
-	Role string `json:"role"`
-	Content string `json:"content"`
-	Action string `json:"action"`
-	RecProducts pq.StringArray  `json:"recommended_product_ids"`
-	CreatedAt string `json:"created_at"`
+	Role        string         `gorm:"column:role" json:"role"`
+	Content     string         `gorm:"column:content" json:"content"`
+	Action      string         `gorm:"column:action" json:"action"`
+	RecProducts pq.StringArray `gorm:"column:recommended_product_ids;type:text[]" json:"recommended_product_ids"`
+	CreatedAt   time.Time      `gorm:"column:created_at" json:"created_at"`
 }
 
 //Структура для ответа истории чата в Фронт /api/sessions/{session_id}/messages
