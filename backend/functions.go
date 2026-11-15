@@ -153,15 +153,19 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
-
-	ai_request.CustomerProfile = *customer_profile
+	if customer_profile != nil {
+		ai_request.CustomerProfile = *customer_profile
+	}
 	session_record, err := GetOneFromDB[Session]("session_id = ?", json_data.SessionId, &Session{})
 	if err != nil {
 		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
-
-	ai_request.ConversationSummary = session_record.ConversationSummary
+	
+	if session_record != nil {
+		ai_request.ConversationSummary = session_record.ConversationSummary
+	}
+	
 
 	var ai_response AIResponseForm
 	_, err = globalAIClient.R().
