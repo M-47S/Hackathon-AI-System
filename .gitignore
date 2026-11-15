@@ -140,3 +140,6 @@ temp/
 *.bak
 *.orig
 **/_test_/
+**/Storage/Catalog/**/*.json
+**/Storage/Index/**/*.json
+**/Storage/Source/**/*.md
