@@ -38,7 +38,7 @@ type Messages struct {
 	Role string `gorm:"type:varchar(20);not null" json:"role"`
 	Action string `gorm:"type:text" json:"action"`
 	Content string `gorm:"type:text;not null" json:"content"`
-	RecProducts pq.StringArray `gorm:"type:text[]" json:"product_ids"`
+	RecProducts pq.StringArray `gorm:"type:text[]" json:"recommended_product_ids"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }
 
@@ -58,6 +58,6 @@ type Leads struct {
 	Email string `gorm:"type:text" json:"email"`
 	Phone string `gorm:"type:text" json:"phone"`
 	Status string `gorm:"type:text" json:"status"`
-	RecProducts pq.StringArray `gorm:"type:text[]" json:"product_ids"`
+	RecProducts pq.StringArray `gorm:"type:text[]" json:"recommended_product_ids"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }

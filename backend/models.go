@@ -43,7 +43,7 @@ type FromAiMessageResponse struct {
 	RequestId string `json:"request_id"`
 	Message MessageForm `json:"message"`
 	Action string `json:"action"`
-	RecProducts []string `json:"product_ids"`
+	RecProducts []string `json:"recommended_product_ids"`
 }
 
 // Структура для считывания []History из БД для Пользователя /v1/chat
@@ -51,7 +51,7 @@ type FrontHistoryMessageForm struct {
 	Role string `json:"role"`
 	Content string `json:"content"`
 	Action string `json:"action"`
-	RecProducts []string `json:"product_ids"`
+	RecProducts []string `json:"recommended_product_ids"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -83,7 +83,7 @@ type AIResponseForm struct {
   SessionId string `json:"session_id"`
   Action string `json:"action"`
   Answer string `json:"answer"`
-  RecProducts []string `json:"product_ids"`
+  RecProducts []string `json:"recommended_product_ids"`
   CustomerProfile CustomerProfileForm `json:"customer_profile"`
   ConversationSummary string `json:"conversation_summary"`
 }
