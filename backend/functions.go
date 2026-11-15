@@ -196,7 +196,7 @@ func InsertMessage(json_data any) error {
 		message.RecProducts = nil
 	case AIResponseForm :
 		message.SessionId = type_struct.SessionId
-		message.Role = "ai"
+		message.Role = "assistant"
 		message.Action = type_struct.Action
 		message.Content = type_struct.Answer
 		message.RecProducts = type_struct.RecProducts
