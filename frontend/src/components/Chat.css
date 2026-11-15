@@ -65,7 +65,7 @@
 .message-assistant {
     align-self: flex-start;
     background-color: rgba(255, 255, 255, 0.1);
-    color: white;
+    color: red;
     border-bottom-left-radius: 4px;
 }
 

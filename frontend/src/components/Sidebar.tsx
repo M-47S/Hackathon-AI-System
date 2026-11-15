@@ -1,56 +1,59 @@
-import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { deleteSession } from "../api/sessions";
-import type { SessionListItem } from "../api/sessions";
+import type { SessionListItem } from "../types/api";
 import type { UserProfile } from "../api/auth";
-import { mockGetSessionsList } from "../api/mock";
 
 interface SidebarProps {
     user: UserProfile;
     onLogout: () => void;
     isDebugMode: boolean;
     onToggleDebug: () => void;
+    sessions: SessionListItem[];
+    setSessions: React.Dispatch<React.SetStateAction<SessionListItem[]>>;
 }
 
-export function Sidebar({ user, onLogout, isDebugMode, onToggleDebug } : SidebarProps) {
-    const [sessions, setSessions] = useState<SessionListItem[]>([]);
+export function Sidebar({ user, onLogout, isDebugMode, onToggleDebug, sessions, setSessions }: SidebarProps) {
     const navigate = useNavigate();
 
-    useEffect(() => {
-        if (!user.is_admin) {
-            mockGetSessionsList().then(data => setSessions(data.items));
-        }
-    }, [user.is_admin]);
-
-    const handleNewChatClick = () => {
-        navigate('/'); 
-    };
+    const handleNewChatClick = () => navigate('/');
 
     const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
-        e.preventDefault(); // Чтобы не срабатывал переход по ссылке NavLink
+        e.preventDefault();
         e.stopPropagation();
 
         try {
-            // Раскомментировать, когда бэк будет готов:
-            // await deleteSession(sessionId);
+            await deleteSession(sessionId);
             
-            // Заглушка: просто удаляем из стейта
-            setSessions(prev => prev.filter(s => s.session_id !== sessionId));
-            
-            // Если удалили текущий открытый чат, переходим на главную
+            // Формируем новый список без удаленного чата
+            const remainingSessions = sessions.filter(s => s.session_id !== sessionId);
+            setSessions(remainingSessions);
+
+            // Если мы удалили тот чат, в котором сейчас находимся
             if (window.location.pathname.includes(sessionId)) {
-                navigate('/');
+                if (remainingSessions.length > 0) {
+                    // Кидаем в первый (самый новый) из оставшихся
+                    navigate(`/chat/${remainingSessions[0].session_id}`);
+                } else {
+                    // Если чатов не осталось, идем на главную (Chat создаст новый)
+                    navigate('/');
+                }
             }
         } catch (err) {
             console.error('Ошибка удаления', err);
         }
     };
 
+    const getSessionTitle = (session: SessionListItem) => {
+        if (!session.conversation_summary) return 'Новый диалог';
+        return session.conversation_summary.length > 30 
+            ? session.conversation_summary.substring(0, 30) + '...' 
+            : session.conversation_summary;
+    };
+
     return (
         <aside className="sidebar">
             <h2 className="sidebar-title">ENERGYTOOL AI</h2>
             
-            {/* Интерфейс пользователя */}
             {!user.is_admin && (
                 <>
                     <button onClick={handleNewChatClick} className="new-chat-btn">
@@ -62,8 +65,9 @@ export function Sidebar({ user, onLogout, isDebugMode, onToggleDebug } : Sidebar
                                 <NavLink 
                                     to={`/chat/${session.session_id}`}
                                     className={({ isActive }) => `session-item ${isActive ? 'active' : ''}`}
+                                    title={session.conversation_summary || 'Новый диалог'}
                                 >
-                                    {session.title || 'Новый диалог'}
+                                    {getSessionTitle(session)}
                                 </NavLink>
                                 <button 
                                     className="delete-chat-btn" 
@@ -78,21 +82,13 @@ export function Sidebar({ user, onLogout, isDebugMode, onToggleDebug } : Sidebar
                 </>
             )}
 
-            {/* Блок внизу */}
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                
-                {/* Чекбокс отладки ТОЛЬКО для пользователя */}
                 {!user.is_admin && (
                     <label style={{ color: '#DCDDDE', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
-                        <input 
-                            type="checkbox" 
-                            checked={isDebugMode} 
-                            onChange={onToggleDebug} 
-                        />
+                        <input type="checkbox" checked={isDebugMode} onChange={onToggleDebug} />
                         Режим отладки
                     </label>
                 )}
-
                 <button onClick={onLogout} className="logout-btn" style={{ marginTop: 0 }}>
                     Выйти ({user.login})
                 </button>

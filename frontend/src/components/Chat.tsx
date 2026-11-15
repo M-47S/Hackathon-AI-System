@@ -1,20 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 import type { SyntheticEvent, KeyboardEvent } from "react";
-import type { ChatMessage } from "../types/api";
+import type { ChatMessage, SessionListItem } from "../types/api";
 import { createSession, getHistory } from "../api/sessions";
 import { sendMessage as apiSendMessage } from "../api/chat";
 import { useNavigate, useParams } from "react-router-dom";
-import { mockProducts } from "../api/mock";
 import { ProductCard } from "./ProductCard";
 import { LeadForm } from "./LeadForm";
 import './Chat.css';
 
-// НОВОЕ: Пропс для режима отладки
 interface ChatProps {
     isDebugMode: boolean;
+    onSessionCreated?: (session: SessionListItem) => void;
+    onSessionUpdated?: (sessionId: string, summary: string) => void;
 }
 
-export function Chat({ isDebugMode }: ChatProps) {
+export function Chat({ isDebugMode, onSessionCreated, onSessionUpdated }: ChatProps) {
     const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
     const navigate = useNavigate();
     
@@ -30,24 +30,55 @@ export function Chat({ isDebugMode }: ChatProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
+    // 1. Загрузка чата и сброс предыдущего состояния
     useEffect(() => {
+        setMessages([]);
+        setInput('');
+        setSelectedProduct(null);
+        setHasSubmittedLead(false);
+        setError(null);
+        setIsLoading(false); // Индикатор печати гаснет сразу при переходе
+
         if (urlSessionId) {
             setSessionId(urlSessionId);
             getHistory(urlSessionId)
-                .then(data => setMessages(data.messages || []))
-                .catch(console.error);
+                .then((data: any) => {
+                    const rawMessages = data.history || data.messages || [];
+                    const formatted = rawMessages.map((msg: any, index: number) => ({
+                        ...msg,
+                        id: msg.id || `hist-${index}-${Date.now()}`,
+                    }));
+                    setMessages(formatted);
+                })
+                .catch(err => {
+                    console.error(err);
+                    setError("Не удалось загрузить историю чата");
+                });
         } else {
             createSession().then(data => {
                 setSessionId(data.session_id);
+                if (onSessionCreated) {
+                    onSessionCreated({
+                        session_id: data.session_id,
+                        conversation_summary: null,
+                    });
+                }
                 navigate(`/chat/${data.session_id}`, { replace: true });
-            }).catch(err => console.error(err));
+            }).catch(err => {
+                console.error(err);
+                setError("Не удалось создать новый чат");
+            });
         }
-    }, [urlSessionId]); // Убрали navigate, чтобы не было бесконечного цикла
 
+        setTimeout(() => textAreaRef.current?.focus(), 100);
+    }, [urlSessionId]);
+
+    // 2. Скролл вниз при новых сообщениях
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isLoading]);
 
+    // 3. Авто-увеличение высоты поля ввода
     useEffect(() => {
         if (textAreaRef.current) {
             textAreaRef.current.style.height = 'auto';
@@ -55,14 +86,18 @@ export function Chat({ isDebugMode }: ChatProps) {
         }
     }, [input]);
 
+    // 4. Отправка сообщения
     async function handleSend() {
         if (!input.trim() || !sessionId || isLoading) return;
 
+        const targetSessionId = sessionId;
         const userText = input;
+
         setInput('');
         setError(null);
         setIsLoading(true);
         setSelectedProduct(null); 
+        setHasSubmittedLead(false);
 
         const userMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -74,31 +109,46 @@ export function Chat({ isDebugMode }: ChatProps) {
 
         try {
             const response = await apiSendMessage({
-                session_id: sessionId,
+                session_id: targetSessionId,
                 request_id: Date.now().toString(),
                 message: userText,
             });
             
-            //ЗАГЛУШКА
-            const rawIds = (response as any).product_ids || [];
-            const foundProducts = rawIds.map((id: string) => mockProducts[id]).filter(Boolean);
-            
+            // Если пользователь переключил чат, пока мы ждали ответ — игнорируем его
+            if (window.location.pathname !== `/chat/${targetSessionId}`) {
+                return; 
+            }
+
             const assistantMessage: ChatMessage = {
-                id: Date.now().toString() + '-assistant',
+                id: response.message?.id || Date.now().toString(),
                 role: 'assistant',
-                content: (response as any).answer,
-                created_at: new Date().toISOString(),
+                content: response.message?.content || "Пустой ответ",
+                created_at: response.message?.created_at || new Date().toISOString(),
                 action: response.action,
-                products: foundProducts,
-                // НОВОЕ: Сохраняем сырой JSON для отладки
-                debugRaw: JSON.stringify(response, null, 2), 
+                products: response.products || [], 
+                debugRaw: JSON.stringify(response, null, 2),
             };
 
             setMessages((prev) => [...prev, assistantMessage]);
+
+            if (response.conversation_summary && onSessionUpdated) {
+                onSessionUpdated(targetSessionId, response.conversation_summary);
+            }
         } catch (err: any) {
-            setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'assistant', content: 'Ошибка: ' + err.message, created_at: new Date().toISOString() }]);
+            if (window.location.pathname === `/chat/${targetSessionId}`) {
+                setMessages((prev) => [...prev, { 
+                    id: Date.now().toString(), 
+                    role: 'assistant', 
+                    content: 'Ошибка: ' + (err.message || 'Неизвестная ошибка'), 
+                    created_at: new Date().toISOString() 
+                }]);
+            }
         } finally {
-            setIsLoading(false);
+            // Сбрасываем загрузку, только если мы все еще в том же чате
+            if (window.location.pathname === `/chat/${targetSessionId}`) {
+                setIsLoading(false);
+                setTimeout(() => textAreaRef.current?.focus(), 0);
+            }
         }
     }
     
@@ -144,7 +194,6 @@ export function Chat({ isDebugMode }: ChatProps) {
                             </div>
                         )}
 
-                        {/* НОВОЕ: Блок отладки */}
                         {isDebugMode && msg.debugRaw && (
                             <details className="debug-json">
                                 <summary>Показать JSON ответа</summary>
@@ -177,7 +226,6 @@ export function Chat({ isDebugMode }: ChatProps) {
                     className="chat-input"
                     rows={1}
                     onKeyDown={handleKeyDown}
-                    disabled={isLoading || !sessionId}
                 />
                 <button 
                     type="submit"
