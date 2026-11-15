@@ -1,9 +1,12 @@
 package main
 
 import (
-	"net/http"
-	"time"
 	"errors"
+	"net/http"
+	"os"
+	"time"
+	"github.com/joho/godotenv"
+	"log"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -43,8 +46,15 @@ func SetupRoutes() *gin.Engine {
 	gin.SetMode(gin.DebugMode)
 	r := gin.Default()
 	// Политика CORS чтобы доверять грубо говоря ip, пока что localhost можно поменять позже, пока не понятно где находится front в будущем
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Критическая ошибка: Неудалось загрузить .env")
+	}
+	front_url := os.Getenv("FRONT_URL")
+	if front_url == ""{
+		log.Fatal("Критическая ошибка: Неудалось найти адрес Frontend")
+	}
 	config := cors.Config {
-		AllowOrigins: []string{"http://localhost:3000"},
+		AllowOrigins: []string{front_url},
 		AllowMethods: []string{"POST", "GET", "OPTIONS", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,

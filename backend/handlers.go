@@ -129,12 +129,33 @@ func ChatHistoryHandler(ctx *gin.Context){
 	session_id := ctx.Param("session_id")
 	_ = session_id
 	var respons UserHistoryForm
-	history, err := GetAllFromDB[FrontHistoryMessageForm]("session_id = ?", session_id, &Messages{})
+	db_history, err := GetAllFromDB[DBHistoryMessageForm]("session_id = ?", session_id, &Messages{})
 	if err != nil {
 		log.Printf("Неудалось корректно найти историю в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
+	
+	var history []FrontHistoryMessageForm
+
+	for _, msg := range db_history {
+
+		item := FrontHistoryMessageForm{
+			Role:      msg.Role,
+			Content:   msg.Content,
+			CreatedAt: msg.CreatedAt,
+			Action:    msg.Action,
+			RecProducts:  make([]ProductData, 0), 
+		}
+
+
+		if len(msg.RecProducts) > 0 {
+			item.RecProducts = ResolveProductCards(msg.RecProducts)
+		}
+
+		history = append(history, item)
+	}
+
 	respons.SessionId = session_id
 	respons.History = history
 	LogStruct("История сессии для отрисовки", respons)

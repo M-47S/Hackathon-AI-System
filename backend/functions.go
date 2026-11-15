@@ -26,6 +26,16 @@ func InitTables() {
 	log.Print("Таблицы успешно созданы")
 }
 
+func InitAIClient() {
+	aiURL := os.Getenv("AI_SERVICE_URL")
+	if aiURL == "" {
+		aiURL = "http://localhost:8001" // Дефолт, если в .env забыли указать
+	}
+
+	// Задаем базовый адрес уже после чтения .env
+	globalAIClient.SetBaseURL(aiURL)
+}
+
 func InitDB() {
 	log.Println("Удаление старого Образа (пока мы тестируем)")
 	_ = exec.Command("docker", "compose", "down", "-v").Run()
@@ -261,4 +271,15 @@ func FillErrorForm(title string, status int, err error) (interface{}){
 		error_struct.Detail = err.Error()
 	}
     return  error_struct
+}
+
+
+func ResolveProductCards(product_ids []string) []ProductData {
+	cards := make([]ProductData, 0)
+	for _, id := range product_ids {
+		if card, exists := ProductMap[id]; exists {
+			cards = append(cards, card)
+		}
+	}
+	return cards
 }

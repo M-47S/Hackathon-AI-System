@@ -98,6 +98,14 @@ type FrontHistoryMessageForm struct {
 	Role string `json:"role"`
 	Content string `json:"content"`
 	Action string `json:"action"`
+	RecProducts []ProductData  `json:"recommended_product_ids"`
+	CreatedAt string `json:"created_at"`
+}
+
+type DBHistoryMessageForm struct {
+	Role string `json:"role"`
+	Content string `json:"content"`
+	Action string `json:"action"`
 	RecProducts pq.StringArray  `json:"recommended_product_ids"`
 	CreatedAt string `json:"created_at"`
 }
