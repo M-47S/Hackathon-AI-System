@@ -1,6 +1,49 @@
 package main
 
 
+
+
+var ProductMap = map[string]ProductData{
+	"cloud_askue": {
+		Id:          "cloud_askue",
+		Name:        "Облачная АСКУЭ",
+		Description: "Автоматизированный сбор и обработка показаний приборов учёта электроэнергии. Работает с 300+ типами счётчиков, позволяет видеть расход по объектам, арендаторам и цехам в одном кабинете.",
+	},
+	"solar_station": {
+		Id:          "solar_station",
+		Name:        "Солнечные электростанции",
+		Description: "Сетевые (снижение платежа) и гибридные (с накопителями, для автономии) СЭС мощностью 15–500 кВт.",
+	},
+	"orem": {
+		Id:          "orem",
+		Name:        "Выход на оптовый рынок электроэнергии (ОРЕМ)",
+		Description: "Переход на оптовый рынок для предприятий с присоединённой мощностью от 750 кВт. Включает аудит существующего учёта.",
+	},
+	"loss_detection": {
+		Id:          "loss_detection",
+		Name:        "Поиск коммерческих потерь",
+		Description: "ML-сервис приоритизации выездных проверок для электросетевых компаний. Помогает находить хищения и вмешательства в счётчики.",
+	},
+	"photo_meter_reading": {
+		Id:          "photo_meter_reading",
+		Name:        "Распознавание показаний по фотографии",
+		Description: "Для приборов, не подключённых к автоматике. Электроэнергия и вода. Распознаёт показания, серийный номер, штрих-код, год выпуска.",
+	},
+	"audit": {
+		Id:          "audit",
+		Name:        "Аудит учёта и расчёт экономического эффекта",
+		Description: "Проверка существующей системы учёта и оценка потенциальной экономии до внедрения решения.",
+	},
+}
+
+
+type ProductData struct {
+	Id string `json:"id"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+}
+
+
 type ErrorForm struct {
 	Type string `json:"type"`
 	Title string `json:"title"`
@@ -37,13 +80,13 @@ type MessageForm struct {
 	CreatedAt string `json:"created_at"`
 }
 
-
+// ответ на фронт от /api/chat
 type FromAiMessageResponse struct {
 	SessionId string `json:"session_id"`
 	RequestId string `json:"request_id"`
 	Message MessageForm `json:"message"`
 	Action string `json:"action"`
-	RecProducts []string `json:"recommended_product_ids"`
+	RecProducts []ProductData `json:"products"`
 }
 
 // Структура для считывания []History из БД для Пользователя /v1/chat

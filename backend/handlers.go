@@ -98,6 +98,13 @@ func UserMessageHandler(ctx *gin.Context) {
 		return
 	}
 
+	var rec_products []ProductData
+	for _, product_name := range ai_response.RecProducts {
+	if product, ok := ProductMap[product_name]; ok {
+		rec_products = append(rec_products, product)
+	}
+}
+
 	ai_message_response  := FromAiMessageResponse {
 		SessionId: user_request.SessionId,
 		RequestId: user_request.RequestId,
@@ -108,7 +115,7 @@ func UserMessageHandler(ctx *gin.Context) {
 			CreatedAt: time.Now().Format(time.RFC3339),
 		},
 		Action: ai_response.Action,
-		RecProducts: ai_response.RecProducts,
+		RecProducts: rec_products,
 	}
 
 	LogStruct("Структура ответа ИИ на Front", ai_message_response)
