@@ -106,7 +106,7 @@ type DBHistoryMessageForm struct {
 	Role        string         `gorm:"column:role" json:"role"`
 	Content     string         `gorm:"column:content" json:"content"`
 	Action      string         `gorm:"column:action" json:"action"`
-	RecProducts pq.StringArray `gorm:"column:recommended_product_ids;type:text[]" json:"recommended_product_ids"`
+	RecProducts pq.StringArray `gorm:"column:rec_products;type:text[]" json:"recommended_product_ids"`
 	CreatedAt   time.Time      `gorm:"column:created_at" json:"created_at"`
 }
 
