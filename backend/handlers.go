@@ -103,7 +103,7 @@ func UserMessageHandler(ctx *gin.Context) {
 		Content: ai_response.Answer,
 		Action: ai_response.Action,
 		RecProducts: ai_response.RecProducts,
-		CreatedAt: time.Now().GoString(),
+		CreatedAt: time.Now().Format(time.RFC3339),
 	}
 
 	LogStruct("Структура ответа ИИ на Front", ai_message_response)
