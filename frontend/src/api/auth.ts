@@ -1,6 +1,12 @@
 import { http } from './client';
 import type { SessionListItem } from '../types/api';
 
+
+export interface LoginCredentials {
+    login: string;
+    password: string;
+}
+
 export interface AuthCredentials {
     login: string;
     password: string;
@@ -13,7 +19,7 @@ export interface UserProfile {
     sessions?: SessionListItem[]; // Бэкенд присылает массив сессий
 }
 
-export function login(credentials: AuthCredentials): Promise<UserProfile> {
+export function login(credentials: LoginCredentials): Promise<UserProfile> {
     return http.post<UserProfile>('/api/login/manual', credentials);
 }
 
