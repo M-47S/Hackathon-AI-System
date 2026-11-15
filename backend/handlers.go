@@ -135,6 +135,7 @@ func ChatHistoryHandler(ctx *gin.Context){
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Search DB Error", http.StatusInternalServerError, err))
 		return
 	}
+	LogStruct("Данные в БД", db_history)
 	
 	var history []FrontHistoryMessageForm
 
