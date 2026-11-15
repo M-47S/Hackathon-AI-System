@@ -18,18 +18,18 @@ func ReadCookieMiddleWare() gin.HandlerFunc {
 		} 
 		cookie_struct, err := GetOneFromDB[Cookies]("cookie_id = ?", cookie_id, &Cookies{})
 		if err != nil {
-			ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+			ctx.SetCookie(CookieName, "", -1, "/", "", false, false)
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, FillErrorForm("User Anauthorized (DB Error)", http.StatusInternalServerError, err))
 			return 
 		}
 		if cookie_struct == nil {
-			ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+			ctx.SetCookie(CookieName, "", -1, "/", "", false, false)
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, FillErrorForm("User Anauthorized (No Record)", http.StatusInternalServerError, err))
 			return 
 		}
 
 		if cookie_struct.ExpiresAt.Before(time.Now()) {
-			ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+			ctx.SetCookie(CookieName, "", -1, "/", "", false, false)
 			err = errors.New("Session expired")
 			ctx.AbortWithStatusJSON(401, FillErrorForm("User Anauthorized (Cookie Expired)", 401, err))
 			return 

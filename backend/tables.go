@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"time"
+	"github.com/lib/pq"
+)
 
 // Тут описаны таблицы а также связи между ними
 type Customers struct {
@@ -35,7 +38,7 @@ type Messages struct {
 	Role string `gorm:"type:varchar(20);not null" json:"role"`
 	Action string `gorm:"type:text" json:"action"`
 	Content string `gorm:"type:text;not null" json:"content"`
-	RecProducts []string `gorm:"type:text[]" json:"rec_products"`
+	RecProducts pq.StringArray `gorm:"type:text[]" json:"rec_products"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }
 
@@ -45,7 +48,6 @@ type Profiles struct {
 	Problem string `gorm:"type:text" json:"problem"`
 	BusinessType string `gorm:"type:text" json:"business_type"`
 	MeteringMethod string `gorm:"type:text" json:"metering_method"`
-	
 }
 
 type Leads struct {
@@ -56,6 +58,6 @@ type Leads struct {
 	Email string `gorm:"type:text" json:"email"`
 	Phone string `gorm:"type:text" json:"phone"`
 	Status string `gorm:"type:text" json:"status"`
-	RecProducts []string `gorm:"type:text[]" json:"rec_products"`
+	RecProducts pq.StringArray `gorm:"type:text[]" json:"rec_products"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null" json:"created_at"`
 }

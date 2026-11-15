@@ -229,7 +229,7 @@ func RegisterCustomer(ctx *gin.Context){
 
 // /api/logout
 func LogoutCustomer(ctx *gin.Context){
-	ctx.SetCookie(CookieName, "", -1, "/", "", false, true)
+	ctx.SetCookie(CookieName, "", -1, "/", "", false, false)
 	ctx.Status(http.StatusOK)
 }
 

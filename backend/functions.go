@@ -160,11 +160,7 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 		log.Printf("Ошибка при поиске профиля | error: %s", err.Error())
 		return AIResponseForm{}, err
 	}
-	if session_record == nil {
-		err = errors.New("Session doesn't exist in DB")
-		log.Printf("Профиль отсутствует в БД | error: %s", err.Error())
-		return AIResponseForm{}, err
-	}
+
 	ai_request.ConversationSummary = session_record.ConversationSummary
 
 	var ai_response AIResponseForm
