@@ -45,7 +45,7 @@ func SetupRoutes() *gin.Engine {
 	// Политика CORS чтобы доверять грубо говоря ip, пока что localhost можно поменять позже, пока не понятно где находится front в будущем
 	config := cors.Config {
 		AllowOrigins: []string{"http://localhost:3000"},
-		AllowMethods: []string{"POST", "GET", "OPTIONS"},
+		AllowMethods: []string{"POST", "GET", "OPTIONS", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 		MaxAge: 12 * time.Hour,
