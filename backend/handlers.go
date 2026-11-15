@@ -240,6 +240,7 @@ func RegisterCustomer(ctx *gin.Context){
 		Login: cust_data.Login,
 		IsAdmin: cust_data.IsAdmin,
 	}
+		LogStruct("Ответ при реигстрации", response)
 	ctx.JSON(http.StatusOK, response)
 }
 
@@ -285,6 +286,7 @@ func LoginCustomerCookie(ctx *gin.Context){
 		IsAdmin: customer_record.IsAdmin,
 		Sessions: sessions,
 	}
+	LogStruct("Ответ при входе", server_response)
 	ctx.JSON(http.StatusOK, server_response)
 }
 
@@ -348,6 +350,7 @@ func LoginCustomerManual(ctx *gin.Context){
 		IsAdmin: customer_record.IsAdmin,
 		Sessions: sessions,
 	}
+	LogStruct("Ответ при входе", server_response)
 
 	ctx.JSON(http.StatusOK, server_response)
 
