@@ -116,6 +116,8 @@ func UserMessageHandler(ctx *gin.Context) {
 		},
 		Action: ai_response.Action,
 		RecProducts: rec_products,
+		Sequence: ai_response.Sequence,
+		UsedDocuments: ai_response.UsedDocuments,
 	}
 
 	LogStruct("Структура ответа ИИ на Front", ai_message_response)
