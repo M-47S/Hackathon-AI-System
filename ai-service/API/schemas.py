@@ -1,9 +1,7 @@
 """
 Pydantic-схемы AI Service.
 
-⚠️  Названия полей синхронизированы с Go-структурами напарника, а не с
-   api-contract.md (есть расхождения: object_count vs objects_count,
-   recommended_product_ids vs product_ids). Источник истины — Go-код.
+Названия полей синхронизированы с Go-структурами backend'а
 """
 
 from __future__ import annotations
@@ -103,6 +101,8 @@ class AIResponseForm(BaseModel):
     recommended_product_ids: list[str] = Field(default_factory=list)   # ← Go tag
     customer_profile: CustomerProfileForm
     conversation_summary: str | None = None
+    sequence: str = Field(default="", description="Цепочка рассуждений LLM")
+    used_documents: list[str] = Field(default_factory=list, description="Использованные документы БЗ")
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +127,7 @@ class LLMStructuredResponse(BaseModel):
     recommended_product_ids: list[str] = Field(default_factory=list)
     customer_profile: LLMCustomerProfile = Field(default_factory=LLMCustomerProfile)
     conversation_summary: str | None = None
+    sequence: str = Field(default="", description="Краткая цепочка мыслей")
 
 
 # ---------------------------------------------------------------------------

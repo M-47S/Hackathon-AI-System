@@ -68,9 +68,10 @@ class Settings:
     RAG_AUTO_BUILD: bool = (_env("RAG_AUTO_BUILD", default="true") or "true").lower() in ("1", "true", "yes")
     RAG_CHUNK_SIZE: int = int(_env("RAG_CHUNK_SIZE", default="640") or "640")
     RAG_CHUNK_OVERLAP: int = int(_env("RAG_CHUNK_OVERLAP", default="64") or "64")
-
+    USE_HYBRID: bool = (_env("USE_HYBRID", default="true") or "true").lower() in ("1", "true", "yes")
+    
     # --- Models - место хранения всех моделей в проекте ---
-    MODELS_DIR: str = _env("MODELS_DIR", default= f"C:/Users/0/OneDrive/Desktop/HackAI/ai-service/Models")
+    MODELS_DIR: str = _env("MODELS_DIR", default= f"./Models")
     
     # --- Embedder (явные пути) ---
     EMBEDDING_MODEL_NAME: str = _env("EMBEDDING_MODEL_NAME", default= f"multilingual-e5-large")

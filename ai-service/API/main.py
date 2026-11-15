@@ -103,7 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # -----------------------------------------------------------------------
     # 3. RAG index (auto-build if missing)
     # -----------------------------------------------------------------------
-    from RAG.pipelines import pipeline_build_from_directory, pipeline_load
+    from RAG.pipelines import pipeline_build_from_directory, pipeline_load, build_bm25_index
 
     def _load_or_build_index():
         # --- 3.1 Попытка загрузить готовый индекс ---
@@ -288,6 +288,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         f"model={Settings.LLM_MODEL} provider="
         f"{'GigaChat' if is_gigachat else 'OpenAI-compat'}"
     )
+    
+    # ---Гибридный поиск ---
+    bm25_index = None
+    if Settings.USE_HYBRID:
+        t0 = time.time()
+        bm25_index = build_bm25_index(doc_store)
+        logger.info("BM25 index built in %.1fs", time.time() - t0)
 
     # -----------------------------------------------------------------------
     # 5. ChatService
@@ -299,6 +306,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         doc_store=doc_store,
         vec_store=vec_store,
         reranker=reranker,
+        bm25_index=bm25_index,
+        use_hybrid=Settings.USE_HYBRID,
         top_k=Settings.RAG_TOP_K,
         exclude_docs=Settings.RAG_EXCLUDE_DOCS
     )
