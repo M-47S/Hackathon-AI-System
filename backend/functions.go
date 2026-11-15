@@ -171,7 +171,7 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 	_, err = globalAIClient.R().
 		SetBody(ai_request).
 		SetResult(&ai_response).
-		Post("http://localhost/v1/chat")
+		Post("/v1/chat")
 	if err != nil {
 		log.Printf("Ошибка при отправке запроса ИИ | error: %s", err.Error())
 		return AIResponseForm{}, err

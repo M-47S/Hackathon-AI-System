@@ -9,7 +9,7 @@ import (
 
 
 var globalDBCon *gorm.DB
-var globalAIClient = resty.New().SetTimeout(30 * time.Second)
+var globalAIClient = resty.New().SetBaseURL("http://localhost:8001").SetTimeout(30 * time.Second)
 
 func main(){
 	InitDB()
