@@ -10,9 +10,6 @@ from ..structs import Embedding
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.getenv("EMB_PATH", r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Embedding\models\multilingual-e5-large")
-
-
 class EmbeddingWrapper(BaseEmbedding):
     """
     Обёртка над HuggingFaceEmbedding для модели intfloat/multilingual-e5-large.
@@ -23,14 +20,14 @@ class EmbeddingWrapper(BaseEmbedding):
       - опциональную установку модели глобально в LlamaIndex (Settings.embed_model).
     """
 
-    model_path: str = MODEL_PATH
+    model_path: str
     device: str = "cpu" 
     
     _embed_model: HuggingFaceEmbedding = PrivateAttr()
     
     def __init__(
         self,
-        model_path: str = MODEL_PATH,
+        model_path: str,
         device: str = "cpu",
         set_global: bool = True,
         **kwargs: Any
@@ -102,15 +99,3 @@ class EmbeddingWrapper(BaseEmbedding):
         """Доступ к объекту HuggingFaceEmbedding (при необходимости)."""
         return self._embed_model
     
-if __name__ == "__main__":
-    model = EmbeddingWrapper()
-    
-    query = "Что такое закон Ома?"
-    document = "Описывающий характеристики тока в цепи в зависимости от Силы тока, напряжения и сопротивления."
-    
-    eq = model._get_query_embedding(query)
-    ed = model._get_text_embedding(document)
-    
-    similiriry = (eq @ ed)/(eq.norm*ed.norm)
-    
-    print(similiriry)

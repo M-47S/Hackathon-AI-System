@@ -5,7 +5,7 @@ from ..structs import Embedding, VectorHit
 from typing import List, Tuple, Union, Optional
 import warnings
 
-BASE_NAME = Path("vector_data.faiss")
+BASE_NAME = Path("Vectors.faiss")
 TOP_K: int = 5 
 
 class VectorStore:

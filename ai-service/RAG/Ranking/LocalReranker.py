@@ -1,14 +1,13 @@
 # RAG/Ranking/LocalReranker.py
 from __future__ import annotations
 
+import os
 import logging
 from typing import List, Optional, Tuple
 
 from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
-
-MODEL_PATH = r"C:\Users\0\OneDrive\Desktop\HackAI\ai-service\RAG\Ranking\models\BAAI/bge-reranker-v2-m3"
 
 
 class LocalReranker:
@@ -22,7 +21,7 @@ class LocalReranker:
 
     def __init__(
         self,
-        model_path: str = MODEL_PATH,
+        model_path: str,
         device: str = "cpu",
         max_length: int = 1024, 
     ):

@@ -53,32 +53,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from RAG.Embedding import EmbeddingWrapper
     try:
         embedder = EmbeddingWrapper(
-            model_name=Settings.EMBEDDING_MODEL_NAME,
+            model_path=Settings.EMBEDDING_MODEL_PATH,
             device=Settings.EMBEDDING_DEVICE,
             embed_batch_size=Settings.EMBEDDING_BATCH_SIZE,
         )
         _log(
             f"[1] Embedder loaded in {time.time()-t_step:.1f}s "
-            f"(model={Settings.EMBEDDING_MODEL_NAME}, "
+            f"(model={Settings.EMBEDDING_MODEL_PATH}, "
             f"device={Settings.EMBEDDING_DEVICE}, "
             f"batch={Settings.EMBEDDING_BATCH_SIZE})"
         )
-    except TypeError as e:
-        # Вдруг EmbeddingWrapper принимает model_path вместо model_name
-        _log(
-            f"[1] EmbeddingWrapper signature mismatch: {e}. "
-            f"Retrying with model_path=...",
-            level="warning",
-        )
-        embedder = EmbeddingWrapper(
-            model_path=Settings.EMBEDDING_MODEL_NAME,
-            device=Settings.EMBEDDING_DEVICE,
-        )
-        _log(f"[1] Embedder loaded in {time.time()-t_step:.1f}s (fallback)")
     except Exception as e:
         _log(
             f"[1] Embedder load FAILED: {e}. "
-            f"Check EMBEDDING_MODEL_NAME={Settings.EMBEDDING_MODEL_NAME}",
+            f"Check EMBEDDING_MODEL_PATH={Settings.EMBEDDING_MODEL_PATH}",
             level="error",
         )
         raise
@@ -154,7 +142,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not kb_path.exists():
             raise RuntimeError(
                 f"KB directory missing: {kb_path}. "
-                f"Set RAG_KB_DIR in API/.env to the folder with .md files."
+                f"Set RAG_KB_DIR in .env to the folder with .md files."
             )
 
         _log(f"[3.2] Scanning {kb_path} for .md files (rglob)...")
@@ -272,7 +260,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not Settings.LLM_AUTH_KEY:
         raise RuntimeError(
             "No LLM_AUTH_KEY / AI_AUTH_KEY / GIGACHAT_AUTH_KEY. "
-            "Set it in API/.env"
+            "Set it in .env"
         )
 
     is_gigachat = "giga.chat" in Settings.LLM_BASE_URL

@@ -1,18 +1,10 @@
-"""
-Статичный каталог продуктов EnergyTool.
+from os import getenv
+from pathlib import Path
+from warnings import warn
+from json import load
 
-ID соответствуют именам документов KB:
-    22-askue.md       → cloud_askue
-    23-solar.md       → solar_station
-    21-orem.md        → orem
-    24-losses.md      → loss_detection
-    25-meter-reading.md → photo_meter_reading
-
-⚠️  Сверить с фактическим каталогом EnergyTool и при необходимости
-   переименовать. Описания — из кейса МТС.
-"""
-
-PRODUCT_CATALOG: dict[str, dict[str, str]] = {
+#Статичный каталог продуктов EnergyTool.
+DEFAULT_CATALOG: dict[str, dict[str, str]] = {
     "cloud_askue": {
         "name": "Облачная АСКУЭ",
         "description": (
@@ -65,7 +57,27 @@ PRODUCT_CATALOG: dict[str, dict[str, str]] = {
 }
 
 
+def get_catalog(path_to_catalog: str) -> dict[str, dict[str, str]]:
+    global DEFAULT_CATALOG
+    fpath: Path = Path(path_to_catalog)
+    
+    if not fpath.exists():
+        warn(f"""
+             The file of catalog at the specified path({fpath}) was not found.\n 
+             The default catalog is used.""")
+        
+        return DEFAULT_CATALOG
+    
+    with open(fpath, 'r', encoding="UTF-8") as file:
+        catalog = load(file)
+        
+    return catalog
+
+CATALOG_PATH = getenv("CATALOG_PATH")
+PRODUCT_CATALOG: dict[str, dict[str, str]] = get_catalog(CATALOG_PATH)
+
 def products_block() -> str:
+    global PRODUCT_CATALOG
     """Форматирует каталог для вставки в SYSTEM_PROMPT."""
     lines = []
     for pid, p in PRODUCT_CATALOG.items():

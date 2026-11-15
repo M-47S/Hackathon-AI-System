@@ -4,23 +4,28 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 # --- 1. Настройки ---
 MODEL_ID = "intfloat/multilingual-e5-large"
-LOCAL_PATH = f"C:/Users/0/OneDrive/Desktop/RagApp/EMBEDDING/models/{MODEL_ID}"
+
+MODELS_DIR = os.getenv("MODELS_DIR", f"C:/Users/0/OneDrive/Desktop/HackAI/ai-service/Models")
+MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", f"multilingual-e5-large")
+
+MODEL_PATH = MODELS_DIR + '/' + MODEL_NAME
+
 
 # --- 2. Проверка и скачивание ---
 # Проверяем, существует ли папка и есть ли в ней файлы (например, config.json)
-model_config_file = os.path.join(LOCAL_PATH, "config.json")
+model_config_file = os.path.join(MODEL_PATH, "config.json")
 
 if not os.path.exists(model_config_file):
-    print(f"Модель не найдена по пути: {LOCAL_PATH}")
+    print(f"Модель не найдена по пути: {MODEL_PATH}")
     print("Начинаем скачивание. Это займет время...")
     
     # Создаем папку, если её нет
-    os.makedirs(LOCAL_PATH, exist_ok=True)
+    os.makedirs(MODEL_PATH, exist_ok=True)
     
     # Скачиваем модель прямо в указанную папку
     snapshot_download(
         repo_id=MODEL_ID,
-        local_dir=LOCAL_PATH
+        local_dir=MODEL_PATH
     )
     print("✅ Модель успешно скачана!")
 else:
@@ -29,7 +34,7 @@ else:
 # --- 3. Инициализация модели ---
 print("Загрузка модели в память...")
 embed_model = HuggingFaceEmbedding(
-    model_name=LOCAL_PATH, # Теперь передаем путь к скачанной папке
+    model_name=MODEL_PATH, # Теперь передаем путь к скачанной папке
     device="cpu"           # или "cuda", если есть видеокарта
 )
 
