@@ -168,6 +168,7 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 	}
 	
 
+	LogStruct("Запрос к ИИ", ai_request)
 	var ai_response AIResponseForm
 	_, err = globalAIClient.R().
 		SetBody(ai_request).
