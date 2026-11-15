@@ -169,6 +169,7 @@ func ManagerStatmentHandler(ctx *gin.Context){
 		Name: statment_form.Contact.Name,
 		Company: statment_form.Contact.Company,
 		Email: statment_form.Contact.Email,
+		Phone: statment_form.Contact.Phone,
 		Status: "new",
 		RecProducts: rec_products,
 		CreatedAt: created_at,
