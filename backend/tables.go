@@ -33,7 +33,7 @@ type Session struct{
 }
 
 type Messages struct {
-	MessageId string `gorm:"primaryKey;type:uuid" json:"message_id"` 
+	MessageId string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"message_id"` 
 	SessionId string `gorm:"type:uuid;not null;index" json:"session_id"`
 	Role string `gorm:"type:varchar(20);not null" json:"role"`
 	Action string `gorm:"type:text" json:"action"`

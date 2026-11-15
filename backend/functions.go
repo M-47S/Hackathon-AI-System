@@ -182,9 +182,10 @@ func GetAIAnwser(json_data UserRequest) (AIResponseForm, error) {
 }
 
 // Данная функция вставляет данные в Таблицу
-func InsertMessage(json_data any) error {
+func InsertMessage(json_data any) (string, error) {
+	message_id := uuid.NewString()
 	message := Messages {
-		MessageId: uuid.NewString(),
+		MessageId: message_id,
 		CreatedAt: time.Now(),
 	}
 	switch type_struct := json_data.(type) {
@@ -202,7 +203,7 @@ func InsertMessage(json_data any) error {
 		message.RecProducts = type_struct.RecProducts
 	}
 	err := globalDBCon.Create(&message).Error
-	return err
+	return message_id, err
 }
 
 func GetLastRecProducts(session_id string) ([]string, error){

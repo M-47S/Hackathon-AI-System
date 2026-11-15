@@ -30,6 +30,22 @@ type AiHistoryMessageForm struct {
 	Content string `json:"content"`
 }
 
+type MessageForm struct {
+	Id string `json:"id"`
+	Role string `json:"role"`
+	Content string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+
+type FromAiMessageResponse struct {
+	SessionId string `json:"session_id"`
+	RequestId string `json:"request_id"`
+	Message MessageForm `json:"message"`
+	Action string `json:"action"`
+	RecProducts []string `json:"products"`
+}
+
 // Структура для считывания []History из БД для Пользователя /v1/chat
 type FrontHistoryMessageForm struct {
 	Role string `json:"role"`

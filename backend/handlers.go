@@ -70,14 +70,14 @@ func UserMessageHandler(ctx *gin.Context) {
 		return
 	}
 	LogStruct("Ответ ИИ", ai_response)
-	err = InsertMessage(user_request)
+	_, err = InsertMessage(user_request)
 	if err != nil {
 		log.Printf("Неудалось записать в сообщение пользователя в БД | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
 		return
 	}
 
-	err = InsertMessage(ai_response)
+	message_id, err := InsertMessage(ai_response)
 	if err != nil {
 		log.Printf("Неудалось записать в ответ ИИ в Messages | Путь : %s | Ошибка: %v", ctx.Request.URL.Path, err)
 		ctx.JSON(http.StatusInternalServerError, FillErrorForm("Insert DB Error", http.StatusInternalServerError, err))
@@ -98,12 +98,17 @@ func UserMessageHandler(ctx *gin.Context) {
 		return
 	}
 
-	ai_message_response  := FrontHistoryMessageForm{
-		Role: "assistant",
-		Content: ai_response.Answer,
+	ai_message_response  := FromAiMessageResponse {
+		SessionId: user_request.SessionId,
+		RequestId: user_request.RequestId,
+		Message: MessageForm{
+			Id: message_id,
+			Role: "assistant",
+			Content: ai_response.Answer,
+			CreatedAt: time.Now().Format(time.RFC3339),
+		},
 		Action: ai_response.Action,
 		RecProducts: ai_response.RecProducts,
-		CreatedAt: time.Now().Format(time.RFC3339),
 	}
 
 	LogStruct("Структура ответа ИИ на Front", ai_message_response)
