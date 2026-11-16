@@ -26,7 +26,7 @@ backend/
 ├── Dockerfile           # Сборка образа
 ├── docker-compose.yml   # Запуск контейнеров PostgreSQL 16 и Go-сервера
 ├── go.mod               # Зависимости Go-модуля
-├── go.sum             
+├── go.sum           
 ├── main.go              # Точка входа, инициализация БД, AI-клиента и запуск сервера
 ├── routes.go            # Настройка CORS, групп маршрутов и Cookie-middleware
 ├── handlers.go          # HTTP-обработчики эндпоинтов и валидация входящих JSON
@@ -41,7 +41,7 @@ backend/
 
 Для изолированного запуска Go-сервера и базы данных PostgreSQL из директории `backend/`:
 
-1. Создайте файл `.env` на основе `.env.example` (без реальных паролей в репозитории):
+1. Создайте файл `.env` на основе `.env.example`:
    ```bash
    cp .env.example .env
    ```
@@ -106,7 +106,6 @@ AI_SERVICE_URL=http://localhost:8001
 ```
 
 ---
-
 
 ## Краткое описание end-points
 
