@@ -1,0 +1,25 @@
+# ============================================================
+# AI Service — core dependencies (CPU-only, torch ставится отдельно)
+# ============================================================
+
+# --- Web / API ---
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic>=2.11.5
+
+# --- Settings / env ---
+python-dotenv==1.0.1
+
+# --- HTTP ---
+httpx2==2.16.0
+
+# --- LLM ---
+openai==3.49.0
+
+# --- RAG ---
+faiss-cpu==1.15.1
+llama-index-core==0.14.25
+llama-index-embeddings-huggingface==0.8.0
+
+# --- ML (torch ставится отдельно в Dockerfile как CPU-only) ---
+sentence-transformers==6.2.0
