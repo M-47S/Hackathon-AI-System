@@ -10,5 +10,5 @@ export function getHistory(sessionId: string): Promise<HistoryResponse> {
 }
 
 export function deleteSession(sessionId: string): Promise<void> {
-    return http.delete<void>(`/api/sessions/${sessionId}`);
+    return http.delete<void>(`/api/delete/${sessionId}`);
 }

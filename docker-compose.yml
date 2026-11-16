@@ -1,0 +1,157 @@
+services:
+  # ═══════════════════════════════════════════════════════════
+  # 1. INFRASTRUCTURE — база данных
+  # ═══════════════════════════════════════════════════════════
+  db:
+    image: postgres:16-alpine
+    container_name: db-cont
+    environment:
+      POSTGRES_USER: ${DB_USER:-team}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-friends}
+      POSTGRES_DB: ${DB_NAME:-mts}
+    ports:
+      - "5433:5432"  # 5433 на хосте — чтобы не конфликтовать с локальным Postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-team} -d ${DB_NAME:-mts}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # 2. AI SERVICE — RAG + LLM (Python/FastAPI)
+  # ═══════════════════════════════════════════════════════════
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: dockerfile
+    container_name: ai-cont
+    env_file:
+      - ./ai-service/.env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ai-models:/app/Models         # 2.3 GB, скачивается один раз
+      - ai-index:/app/Storage/Index   # FAISS, пересобирается редко
+
+      # ── Bind mounts (редактируются руками) ──
+      - ./ai-service/Storage/Source:/app/Storage/Source:ro
+      - ./ai-service/Storage/Catalog:/app/Storage/Catalog:ro
+    networks:
+      - ai-net
+    healthcheck:
+      # Проверяем, что /health вернул {"status":"ok"}
+      test:
+        - CMD-SHELL
+        - 'curl -sf http://localhost:8001/health | grep -q "\"status\":\"ok\""'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 600s   # ⚠️ Первый запуск: скачивание моделей + сборка индекса (до 10 мин)
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # 3. BACKEND — Go API (зависит от db + ai-service)
+  # ═══════════════════════════════════════════════════════════
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-cont
+    env_file:
+      - ./backend/.env
+    environment:
+      # ⚠️ Переопределяем то, что в .env указывает на localhost
+      # Внутри docker-сети backend должен обращаться к ai-service по имени
+      AI_SERVICE_URL: http://ai-service:8001
+      # Postgres — тоже внутри сети, не localhost
+      DB_HOST: db
+      DB_PORT: 5432
+      DATABASE_URL: host=db user=${DB_USER:-team} password=${DB_PASSWORD:-friends} dbname=${DB_NAME:-mts} port=5432 sslmode=disable
+      # CORS — разрешаем фронтенду с хоста
+      FRONT_URL: http://localhost:80
+    ports:
+      - "8080:8080"
+    networks:
+      - frontend-net
+      - db-net
+      - ai-net
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy   # ⏸ backend ждёт, пока ai-service не станет healthy
+    healthcheck:
+      # Alpine не имеет curl — используем wget
+      test: ["CMD-SHELL", 'wget -q -O /dev/null http://localhost:8080/api/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # 4. FRONTEND — React/Nginx (зависит от backend)
+  # ═══════════════════════════════════════════════════════════
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # ⚠️ VITE_API_URL — build-time переменная (Vite "впекает" её в JS)
+        # Должна указывать на URL backend, доступный ИЗ БРАУЗЕРА (не из контейнера!)
+        # Браузер работает на хосте → localhost:8080
+        VITE_API_URL: http://localhost:8080
+    container_name: frontend-cont
+    ports:
+      - "80:80"
+    networks:
+      - frontend-net
+    depends_on:
+      backend:
+        condition: service_healthy   # ⏸ frontend ждёт, пока backend не станет healthy
+    restart: unless-stopped
+
+
+# ═══════════════════════════════════════════════════════════
+# СЕТИ
+# ═══════════════════════════════════════════════════════════
+networks:
+  # frontend ↔ backend
+  frontend-net:
+    driver: bridge
+
+  # backend ↔ db
+  db-net:
+    driver: bridge
+    internal: true   # db не имеет доступа в интернет (только backend)
+
+  # backend ↔ ai-service
+  ai-net:
+    driver: bridge
+    # БЕЗ internal — ai-service должен иметь доступ в интернет для LLM API (GigaChat/Gemini)
+
+
+# ═══════════════════════════════════════════════════════════
+# VOLUMES
+# ═══════════════════════════════════════════════════════════
+volumes:
+  ai-models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/ai-service/Models
+  ai-index:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/ai-service/Storage/Index
+  postgres_data:
+    driver: local
