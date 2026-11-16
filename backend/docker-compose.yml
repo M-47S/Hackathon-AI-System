@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hakaton-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-team}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-friends}
+      POSTGRES_DB: ${DB_NAME:-mts}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mts}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: . 
+      dockerfile: Dockerfile
+    container_name: hakaton-backend
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: host=db user=${DB_USER:-postgres} password=${DB_PASSWORD:-secret} dbname=${DB_NAME:-mts} port=${DB_PORT:-5432} sslmode=disable
+      SALT_SIZE: ${SALT_SIZE:-10}
+      #пока что тут стоит docker.internal так как LLM локально запущено а не в Docker
+      AI_SERVICE_URL: http://docker.internal
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

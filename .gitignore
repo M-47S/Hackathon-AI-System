@@ -120,7 +120,9 @@ logs/
 *.db-journal
 
 # ---------- ML / RAG artifacts ----------
-models/
+**/models/*
+!**/models/model_loader.py
+!**/models/*.txt
 *.pt
 *.pth
 *.ckpt
@@ -138,3 +140,7 @@ tmp/
 temp/
 *.bak
 *.orig
+**/_test_/
+**/Storage/Catalog/**/*.json
+**/Storage/Index/**/*.json
+**/Storage/Source/**/*.md

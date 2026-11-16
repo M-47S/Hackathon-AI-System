@@ -1,0 +1,27 @@
+.product-card { 
+    background: #fff; 
+    padding: 15px; 
+    border-radius: 12px; 
+    margin-top: 10px; 
+    color: #333; 
+}
+
+.product-card h3 { 
+    margin: 0; 
+    color: #0a105e; 
+}
+
+.product-card p { 
+    font-size: 0.9rem; 
+    color: #555; 
+    margin: 5px 0 10px; 
+}
+
+.product-btn { 
+    background: #e81a0c; 
+    color: white; 
+    border: none; 
+    padding: 8px 16px; 
+    border-radius: 20px; 
+    cursor: pointer; 
+}
