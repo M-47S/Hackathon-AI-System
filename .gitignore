@@ -122,6 +122,7 @@ logs/
 # ---------- ML / RAG artifacts ----------
 **/models/*
 !**/models/model_loader.py
+!**/models/*.txt
 *.pt
 *.pth
 *.ckpt
