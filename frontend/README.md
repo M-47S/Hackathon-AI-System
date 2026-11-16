@@ -1,32 +1,58 @@
-# React + TypeScript + Vite
+# EnergyTool AI — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Клиентская часть прототипа ИИ-консультанта для сайта EnergyTool (хакатон МТС, трек «AI от МТС: ИИ-консультант для бизнеса»).
 
-Currently, two official plugins are available:
+## 📋 1. Назначение решения и архитектура
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Назначение:**
+Frontend представляет собой SPA (Single Page Application), реализующее интерфейс для взаимодействия клиента с ИИ-консультантом, а также панель менеджера (администратора). Приложение помогает выявить потребности бизнеса, подобрать решение из каталога EnergyTool и оставить заявку.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+**Архитектура:**
+```text
+[ Браузер (React SPA) ]
+          │
+          │ HTTP / JSON (Public API)
+          ▼
+[ Business Backend (Go) ] ────► [ Central DB ]
 ```
+*   **Frontend** общается исключительно с публичным API Business Backend.
+*   Аутентификация реализована через `HttpOnly` cookies (сессии).
+*   Роутинг разделен на публичную часть (`/`) и защищенную панель администратора (`/admin`).
+*   Компонентная база: `Chat`, `AuthForm`, `AdminPanel`, `Sidebar`, `LeadForm`, `ProductCard`.
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## 🛠 2. Стек и зависимости
+
+**Технологии:**
+*   **React 19** + **TypeScript** (строгая типизация).
+*   **Vite 8** — сборщик и dev-сервер (настроен на порт 3000).
+*   **React Router DOM v7** — маршрутизация.
+*   **Oxlint** — быстрый линтер (встроен в Vite).
+*   **Nginx** — production-сервер для раздачи статики (внутри Docker).
+
+**Основные зависимости:**
+*   `react`, `react-dom`, `react-router-dom`.
+*   `typescript`, `vite`, `@vitejs/plugin-react`, `oxlint` (dev).
+
+## ⚙️ 3. Переменные окружения
+
+Для локальной разработки создается файл `.env.local` (на основе `.env.example`).
+
+| Переменная | Описание | Пример |
+| :--- | :--- | :--- |
+| `VITE_API_URL` | Базовый URL для запросов к Business Backend. | `http://localhost:8080` |
+
+*Секретные ключи (API-ключи LLM) на фронтенде не хранятся.* 
+## ✅ 4. Порядок проверки основного сценария
+
+1.  **Авторизация:** Откройте приложение. Зарегистрируйтесь (поставьте галочку «Администратор» для проверки панели менеджера).
+2.  **Диалог:** Напишите: *"У нас 50 магазинов, собираем показания вручную"*.
+3.  **Рекомендация:** Убедитесь, что ИИ задает вопросы и выдает карточку продукта (`action: "recommend"`).
+4.  **Заявка:** При `action: "offer_handoff"` заполните форму и отправьте её.
+5.  **Панель админа:** Перейдите в `/admin` и убедитесь, что заявка появилась в списке.
+
+## ⚠️ 5. Известные ограничения (MVP)
+
+*   **Нет стриминга:** Ответ ИИ приходит целиком (задержка 5–15 секунд, есть индикатор загрузки).
+*   **Базовая авторизация:** Куки без CSRF-защиты (достаточно для MVP).
+*   **Адаптивность:** Верстка ориентирована на десктоп, на мобильных устройствах возможны проблемы.
+
